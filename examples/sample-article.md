@@ -1,8 +1,8 @@
-summary: 这是一篇示例文章，展示 wechat-article-pipeline 的渲染器支持的完整排版语法
+summary: 这是一篇示例文章，展示 md2wechat 的渲染器支持的完整排版语法
 
 # 示例文章：微信公众号排版语法全览
 
-> 这篇文章展示了 wechat-article-pipeline 渲染器支持的所有扩展语法。
+> 这篇文章展示了 md2wechat 渲染器支持的所有扩展语法。
 > 从 H2 章节到卡片、引用块、代码块、表格，一网打尽。
 
 ## 第一个章节：H2 章节标记

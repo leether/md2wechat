@@ -4,6 +4,25 @@ import { fileURLToPath } from "node:url";
 import { parseArgs, printHelp, requireArg } from "./lib/memory-lib.mjs";
 import { lintWritingQuality, formatReport as formatWritingReport } from "./lint_writing_quality.mjs";
 
+// ── 轻量 .env 读取（与 create_wechat_draft.mjs 的 readEnvFile 一致） ──
+function readEnvFile(envPath) {
+  if (!fs.existsSync(envPath)) return {};
+  const pairs = {};
+  for (const line of fs.readFileSync(envPath, "utf8").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const sep = trimmed.indexOf("=");
+    if (sep === -1) continue;
+    const key = trimmed.slice(0, sep).trim();
+    let value = trimmed.slice(sep + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    pairs[key] = value;
+  }
+  return pairs;
+}
+
 function escapeHtml(value) {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -1201,11 +1220,12 @@ function main(argv = process.argv.slice(2)) {
       "  --kicker <text>        Small centered line above the opening section",
       "  --footer-note <text>   Small centered footer note",
       "  --footer-cta <text>    Small centered CTA line",
-      "  --footer-qr <path>     Footer QR image path",
+      "  --footer-qr <path>     Footer QR image path (overrides .env FOOTER_QR_PATH)",
       "  --footer-qr-alt <text> Footer QR alt text",
-      "  --footer-qr-title <text> Footer QR title",
-      "  --footer-qr-hint <text> Footer QR hint",
+      "  --footer-qr-title <text> Footer QR title (overrides .env FOOTER_QR_TITLE)",
+      "  --footer-qr-hint <text> Footer QR hint (overrides .env FOOTER_QR_HINT)",
       "  --no-footer            Skip CTA/footer check (use when article has no QR)",
+      "  --env <path>           Override .env path (default: .env in cwd)",
       "  --no-writing-lint      Skip writing quality lint (L1 banned words/punctuation)",
       "  --writing-rules <path> Custom rules.json path (default: references/khazix-writer/rules.json)",
       "  --strict-writing       Treat L2 warnings as errors",
@@ -1223,14 +1243,30 @@ function main(argv = process.argv.slice(2)) {
   const outputPath = normalizeOutputPath(inputPath, args.output);
   const markdown = fs.readFileSync(absoluteInput, "utf8");
 
-  // ── CTA 护栏：检测到二维码/扫码/交流群信号但未传 footer-qr 时拦截 ──
+  // ── 读取 .env 中的 footer 配置（命令行参数优先） ──
+  const envPath = args.env
+    ? path.resolve(process.cwd(), args.env)
+    : path.resolve(process.cwd(), ".env");
+  const envFromFile = readEnvFile(envPath);
+
+  // ── CTA 护栏：检测到二维码/扫码/交流群信号时的处理 ──
+  // 命令行 > .env 配置 > 无 footer（降级警告）
+  const footerQr = args["footer-qr"] || envFromFile.FOOTER_QR_PATH || "";
+  const footerCta = args["footer-cta"] || envFromFile.FOOTER_CTA || "";
+  const footerQrTitle = args["footer-qr-title"] || envFromFile.FOOTER_QR_TITLE || "";
+  const footerQrHint = args["footer-qr-hint"] || envFromFile.FOOTER_QR_HINT || "";
+
   const hasCta = detectCtaSignals(markdown);
-  const hasFooterQr = Boolean(args["footer-qr"]);
+  const hasFooterQr = Boolean(footerQr);
   if (hasCta && !hasFooterQr && !args["no-footer"]) {
-    throw new Error(
-      `❌ 渲染被拦截：检测到 Markdown 中包含 CTA/二维码/交流群等信号，但未提供 --footer-qr 参数。\n` +
-      `   请添加 --footer-qr <path> [--footer-cta <text>] [--footer-qr-title <text>] [--footer-qr-hint <text>]，\n` +
-      `   或显式使用 --no-footer 跳过此检查。`,
+    // 有 CTA 信号但没有配置 footer → 降级为警告而非报错
+    // 原因：开源用户可能不需要尾部二维码，不应该阻止渲染
+    console.warn(
+      `⚠️  CTA 护栏警告：检测到 Markdown 中包含 CTA/二维码/交流群等信号，但未配置 footer。\n` +
+      `   - 命令行：--footer-qr <path> [--footer-cta <text>] [--footer-qr-title <text>] [--footer-qr-hint <text>]\n` +
+      `   - .env：FOOTER_QR_PATH / FOOTER_CTA / FOOTER_QR_TITLE / FOOTER_QR_HINT\n` +
+      `   - 跳过检查：--no-footer\n` +
+      `   文章将不带尾部 footer 继续渲染。`,
     );
   }
 
@@ -1253,11 +1289,11 @@ function main(argv = process.argv.slice(2)) {
   const html = renderWechatEditorial(markdown, {
     kicker: args.kicker ? String(args.kicker) : "",
     footerNote: args["footer-note"] ? String(args["footer-note"]) : "",
-    footerCta: args["footer-cta"] ? String(args["footer-cta"]) : "",
-    footerQrSrc: args["footer-qr"] ? String(args["footer-qr"]) : "",
+    footerCta: footerCta,
+    footerQrSrc: footerQr,
     footerQrAlt: args["footer-qr-alt"] ? String(args["footer-qr-alt"]) : "",
-    footerQrTitle: args["footer-qr-title"] ? String(args["footer-qr-title"]) : "",
-    footerQrHint: args["footer-qr-hint"] ? String(args["footer-qr-hint"]) : "",
+    footerQrTitle: footerQrTitle,
+    footerQrHint: footerQrHint,
   });
 
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });

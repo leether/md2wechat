@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import zlib from "node:zlib";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { parseArgs, printHelp, requireArg } from "./lib/memory-lib.mjs";
@@ -12,6 +13,70 @@ const defaultEnvPath = path.resolve(process.cwd(), ".env");
 const targetCoverAspectRatio = 2.35;
 const targetCoverAspectTolerance = 0.2;
 const maxPictureDraftImages = 20;
+
+// ── 纯色占位封面图生成（零 npm 依赖，纯 Node.js + zlib） ──
+// 微信草稿箱必须有封面图，没有时自动生成一个纯色占位图
+function generatePlaceholderCover(outputPath, options = {}) {
+  const W = options.width || 900;
+  const H = options.height || 383; // ≈ 2.35:1，微信推荐比例
+  const R = options.r ?? 0x1a;
+  const G = options.g ?? 0x1a;
+  const B = options.b ?? 0x2e;
+
+  // 构建原始扫描线：每行 = filter_byte(0) + W * RGB
+  const rowLen = 1 + W * 3;
+  const raw = Buffer.alloc(H * rowLen);
+  for (let y = 0; y < H; y++) {
+    const off = y * rowLen;
+    raw[off] = 0; // filter: None
+    for (let x = 0; x < W; x++) {
+      const px = off + 1 + x * 3;
+      raw[px] = R; raw[px + 1] = G; raw[px + 2] = B;
+    }
+  }
+
+  const compressed = zlib.deflateSync(raw);
+  const sig = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+
+  // IHDR: width, height, bitDepth=8, colorType=2(RGB)
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(W, 0); ihdr.writeUInt32BE(H, 4);
+  ihdr[8] = 8; ihdr[9] = 2;
+
+  const chunks = [
+    _pngChunk("IHDR", ihdr),
+    _pngChunk("IDAT", compressed),
+    _pngChunk("IEND", Buffer.alloc(0)),
+  ];
+
+  fs.writeFileSync(outputPath, Buffer.concat([sig, ...chunks]));
+  return outputPath;
+}
+
+function _pngChunk(type, data) {
+  const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+  const typeB = Buffer.from(type);
+  const crc = _crc32(Buffer.concat([typeB, data]));
+  const crcB = Buffer.alloc(4); crcB.writeUInt32BE(crc);
+  return Buffer.concat([len, typeB, data, crcB]);
+}
+
+// CRC32 查表法（PNG 规范要求）
+const _crc32Table = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c;
+  }
+  return t;
+})();
+
+function _crc32(buf) {
+  let crc = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) crc = (crc >>> 8) ^ _crc32Table[(crc ^ buf[i]) & 0xff];
+  return (crc ^ 0xffffffff) >>> 0;
+}
 
 function readEnvFile(envPath) {
   if (!fs.existsSync(envPath)) {
@@ -945,10 +1010,12 @@ function runWechatDraftPreflight(plan) {
       info.cover = coverInfo;
     }
   } else if (!article.thumb_media_id || article.thumb_media_id === "__UPLOAD_THUMB_IMAGE_AT_RUNTIME__") {
-    blocking.push(
+    // 占位图已在主流程自动生成，这里不需要 blocking
+    // 但如果走到这个分支说明流程异常，加个 warning
+    warnings.push(
       buildPreflightIssue(
-        "missing_cover_input",
-        "Missing cover input. Pass --thumb-media-id or --thumb-image.",
+        "placeholder_cover_used",
+        "No explicit cover image provided; a solid-color placeholder will be used. Replace in WeChat editor.",
       ),
     );
   } else {
@@ -1069,10 +1136,14 @@ export function resolveDraftPlan(argv = process.argv.slice(2)) {
   }
 
   const explicitThumbMediaId = args["thumb-media-id"] ? String(args["thumb-media-id"]).trim() : "";
-  const thumbImagePath = args["thumb-image"] ? path.resolve(process.cwd(), String(args["thumb-image"]).trim()) : "";
+  let thumbImagePath = args["thumb-image"] ? path.resolve(process.cwd(), String(args["thumb-image"]).trim()) : "";
   if (!isPictureDraft && !explicitThumbMediaId && !thumbImagePath) {
-    throw new Error(
-      "Missing cover input. Pass --thumb-media-id <media_id> or --thumb-image <path>.",
+    // 自动生成纯色占位封面图（微信草稿箱必须有封面图）
+    thumbImagePath = path.join(os.tmpdir(), `wechat-placeholder-cover-${Date.now()}.png`);
+    generatePlaceholderCover(thumbImagePath);
+    console.warn(
+      `⚠️  未提供封面图，已自动生成纯色占位图：${thumbImagePath}\n` +
+      `   建议在微信公众号后台替换为正式封面图。如需自定义，使用 --thumb-image <path>。`,
     );
   }
 
@@ -1135,6 +1206,8 @@ export async function createWechatDraft(argv = process.argv.slice(2)) {
       "  --html <path>                 WeChat-ready HTML file",
       "  --picture-draft               Create a picture-message draft instead of an HTML article draft",
       "  --images <a,b,c>              Local image files for picture draft, up to 20 images",
+      "",
+      "Cover image (optional — auto-generates a solid-color placeholder if omitted):",
       "  --thumb-media-id <id>        Permanent cover image media_id",
       "  --thumb-image <path>         Local image file to upload as the cover material",
       "",
@@ -1146,7 +1219,7 @@ export async function createWechatDraft(argv = process.argv.slice(2)) {
       "  --description <text>         Picture draft caption text; falls back to --content or digest",
       "  --content <text>             Explicit body text for picture draft",
       "  --content-source-url <url>   'Read more' URL",
-      "  --account <name>             Named WeChat account, e.g. xinzhe",
+      "  --account <name>             Named WeChat account, e.g. my_account",
       "  --open-comment <0|1>         Enable comments",
       "  --fans-only-comment <0|1>    Restrict comments to followers",
       "  --crop-235-1 <coords>        Optional cover crop, e.g. 0.1_0_1_0.5",

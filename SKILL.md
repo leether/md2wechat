@@ -1,0 +1,429 @@
+---
+name: md2wechat
+description: 从 Markdown 文件出发，改写→排版→发布三位一体的公众号文章管线。触发词：推公众号、发公众号、微信草稿箱、公众号排版、推送草稿、写公众号文章。
+---
+
+# 微信公众号文章管线（改写 → 排版 → 发布）
+
+## 前置配置
+
+本 skill 所有路径基于环境变量 `${PIPELINE_HOME}`（仓库根目录）和 `${NODE_PATH}`（Node 可执行文件路径）。
+
+```bash
+# 在 .env 或 shell 环境中设置（必须）
+export PIPELINE_HOME=/path/to/md2wechat   # 本仓库根目录
+export NODE_PATH=node                                     # 或 Node 完整路径
+```
+
+> **安装方式**：`git clone` 本仓库 → 复制 `.env.example` 为 `.env` → 填入凭据 → 设置 `PIPELINE_HOME`
+>
+> 仓库即 skill，skill 即仓库。所有脚本、规则、文档都在一个目录下。
+
+## 完整流程
+
+```
+圆桌报告/素材 MD
+  ↓ Step 0：风格改写（khazix-writer）
+公众号文章 MD
+  ↓ Step 1：渲染 HTML（render_wechat_editorial.mjs）
+微信合规 HTML（含 CTA + 群二维码）
+  ↓ Step 2：准备图片（封面图必须有，正文插图可选）
+封面图 PNG
+  ↓ Step 3：推送（relay 跳板机 → create_wechat_draft.mjs → 微信 API）
+草稿箱
+  ↓ Step 4：回检验证
+✅ 确认发布
+```
+
+---
+
+## Step 0：风格改写（必须使用 khazix-writer）
+
+**这一步不能跳过。** 圆桌报告或研究素材是专业文本，需要改写成有"活人感"的公众号文章。
+
+### 触发 khazix-writer
+
+调用 `Skill` 工具，`skill: "khazix-writer"`，传入原始报告内容和改写要求。
+
+> **khazix-writer 是外部 skill 依赖**。本仓库 `references/khazix-writer/` 包含其完整写作指南和规则文件（MIT License），供参考和 lint 使用。要触发风格改写，需确保 `khazix-writer` skill 已安装。
+
+### ⚠️ 人格覆盖（必须执行）
+
+khazix-writer 的 SKILL.md 以「数字生命卡兹克」为人格锚点写作，尾部固定带卡兹克署名和邮箱。**调用后必须覆盖以下内容**：
+
+1. **身份替换**：忽略"你正在以数字生命卡兹克的身份写作"，替换为你自己的公众号身份
+2. **尾部替换**：忽略固定尾部模板（"作者：卡兹克" + 投稿邮箱），替换为你自己的署名和 CTA
+3. **口语化词组保留**：khazix-writer 推荐的口语化词组（"坦率的讲""说真的"等）是通用技巧，继续使用
+4. **写作方法论保留**：四层自检、节奏感、开头必杀技、禁用词等是通用方法论，继续遵守
+
+简单说：**方法论是工具，人格是品牌。工具拿过来，品牌换自己的。**
+
+### 改写要点
+
+1. **保留核心论据和数据**：圆桌报告里的关键数字、估值区间、信号判断不能丢
+2. **加入叙事弧**：从"现象/悬念"开头，按"观察→好奇→研究→洞察"推进
+3. **口语化转场**：用"说到这个""回到xxx这块""坦率的讲"替代学术转场
+4. **排版信号**：改写时直接用 `:::wechat-card` / `## H2` / `>` / ``` 等渲染器支持的语法，省得二次改
+5. **作者信息**：按你的公众号填写作者名
+6. **文章摘要**：MD 第一行加 `summary: xxx`，会渲染为 HTML comment 并被脚本自动提取为文章 digest。如果不加，digest 默认取正文前 54 字（可能包含 Markdown 标记）
+
+### MD 中的排版语法（改写时直接嵌入）
+
+渲染器支持的扩展语法——**改写时就要用上**，不要写完纯文本再返工加格式：
+
+#### H2 章节标记
+```markdown
+## 章节标题
+```
+→ 渲染为橙色圆角区块（background:#d0784a，白色大字）
+
+#### 深色卡片
+```markdown
+:::wechat-card
+title: 卡片标题
+tone: dark
+- 列表项1
+- 列表项2
+:::
+```
+→ 深色背景 #3a3333，白色文字，蓝色边框
+
+#### 浅色卡片
+```markdown
+:::wechat-card
+title: 卡片标题
+tone: light
+- 列表项1
+:::
+```
+→ 浅橙背景 #fff8f1，深色文字，橙色细边框
+
+#### ⚠️ 卡片语法铁律
+- **推荐写法**：`:::wechat-card` + `title:` + `tone:` 键值对（title 渲染为独立加粗标题行）
+- **简写写法**：`:::wechat-card dark` / `:::wechat-card light`（tone 映射正确，但无独立标题行）
+- **绝对禁止**：`:::wechat-card` 后跟非法 tone 值（如 red / blue），会被 lint 警告
+- **必须关闭**：每个 `:::wechat-card` 必须有对应的 `:::`，否则整个块解析失败
+- **⚠️ 卡片内部不支持表格**：`:::wechat-card` 里的 `|...|` 表格语法不会被解析，会被当成普通文本。表格必须放在卡片外部，由顶层 `parseMarkdown` 正确渲染
+
+#### 正文插图
+```markdown
+:::wechat-image
+src: /path/to/image.png
+alt: 图片描述
+caption: 图片说明
+:::
+```
+→ 渲染为居中图片 + 下方说明文字，图片会被自动上传微信 CDN
+
+#### 引用块
+```markdown
+> 引用文字
+>
+> 支持多行，空行分隔段落
+>
+> - 内部列表项1
+> - 内部列表项2
+```
+→ 左侧 3px 深色竖线，支持内部嵌套列表、代码块、段落
+
+#### 围栏代码块
+````markdown
+```bash
+cd ~/.workbuddy
+npm install @cnbcool/cnb-cli
+```
+````
+→ 深色背景 `#1b1e23` 代码块，等宽字体，适合展示命令行、架构图等
+
+**注意**：微信公众号不支持 mermaid / PlantUML（需要 `<script>` JS 引擎）。流程图建议用深色卡片纵向排列，或放在代码块里用 ASCII 展示。
+
+#### 数据表格
+```markdown
+| 列1 | 列2 | 列3 |
+|-----|-----|-----|
+| 值1 | 值2 | 值3 |
+```
+→ 圆角表格，橙色表头，交替行背景
+
+---
+
+## Step 1：渲染 HTML
+
+```bash
+${NODE_PATH} ${PIPELINE_HOME}/scripts/render_wechat_editorial.mjs \
+  --input <markdown文件> \
+  --output <输出html路径>
+# footer 参数会自动从 .env 读取（FOOTER_QR_PATH / FOOTER_CTA / FOOTER_QR_TITLE / FOOTER_QR_HINT）
+# 如需覆盖 .env 配置，可用命令行参数：
+#   --footer-qr /path/to/qr.png --footer-cta "文案" --footer-qr-title "标题" --footer-qr-hint "提示"
+# 如文章确实不需要 CTA，加 --no-footer 跳过 CTA 护栏检查
+# 如 .env 中未配置 FOOTER_QR_PATH 且 MD 中有 CTA 信号，渲染会输出警告但不会阻止
+```
+
+### 渲染后双重校验
+
+渲染引擎自动运行两层 lint：
+
+1. **`lintMarkdownDirectives()`**（源码级）：渲染前检查——未知指令、非法 tone 值、缺少关闭 `:::`、hero/image 不支持简写
+2. **`lintWechatHtml()`**（输出级）：渲染后检查——position/filter/gradient/!important/id=/事件属性等微信会过滤的属性
+
+**若出现致命错误，修复 MD 源码后重新渲染。不要只修 HTML 不修 MD——HTML 是 MD 的派生产物。**
+
+### 微信 HTML 合规规则
+
+| 级别 | 禁止项 | 后果 |
+|------|--------|------|
+| 致命 | `position: absolute/fixed/sticky`、`<style>`、`<script>`、事件属性、`<iframe>`/`<form>`/`<input>` | 被微信直接删除 |
+| 高风险 | `position: relative`、`filter:`、`linear-gradient`、`!important`、`font-family` 自定义、`transform`/`animation`/`calc()` | 兼容性不稳定，Dark Mode 下可能异常 |
+| 安全 | 内联 `style="..."`、inline-block + margin（卡片圆点）、图片+文字卡片上下布局（Hero）、微信默认字体栈 | ✅ |
+
+### 写作质量质检
+
+渲染前自动扫描 Markdown 写作质量（基于 khazix-writer 四层质控体系）：
+
+- **L1 硬性规则**（违规阻止渲染）：禁用词、禁用标点、结构套话、空泛工具名、超长段落
+- **L2 风格一致性**（违规输出警告）：宏大叙事开头、口语化不足、句长节奏单一、情绪标点缺失、过度加粗
+
+```bash
+# 跳过写作质检（不推荐）
+--no-writing-lint
+
+# 使用自定义规则文件
+--writing-rules /path/to/my-rules.json
+
+# L2 警告也视为错误
+--strict-writing
+```
+
+规则文件默认位置：`${PIPELINE_HOME}/references/khazix-writer/rules.json`
+
+---
+
+## Step 2：准备图片
+
+### 封面图（推送时必须，无图会自动生成占位图）
+
+**优先级**：命令行 `--thumb-image` > `IMAGE_GEN_CLI` 自动生成 > 手动准备 > 纯色占位图
+
+| 模式 | 触发条件 | 行为 |
+|------|----------|------|
+| **自动生成** | `.env` 中配了 `IMAGE_GEN_CLI` | 调用 CLI 生成封面图（如 Dreamina） |
+| **手动准备** | 未配 `IMAGE_GEN_CLI`，但提供了 `--thumb-image` | 用你准备的任意图片 |
+| **占位图 fallback** | 都没提供 | 自动生成 900×383 纯色 PNG（`#1a1a2e`），建议在微信后台替换 |
+
+**自动生成模式**（`IMAGE_GEN_CLI` 已配置）：
+
+Dreamina CLI 示例（`IMAGE_GEN_TOOL=dreamina`）：
+
+```bash
+${IMAGE_GEN_CLI} text2image \
+  --prompt="<封面描述>" \
+  --model_version=${IMAGE_GEN_MODEL:-5.0} \
+  --ratio=${IMAGE_GEN_RATIO:-21:9} \
+  --poll=${IMAGE_GEN_POLL:-120}
+curl -L -o /tmp/cover.png "<返回的 image_url>"
+```
+
+自定义 CLI（`IMAGE_GEN_TOOL=custom`）：根据你的 CLI 文档自行调用，只要最终拿到 PNG/JPG 即可。
+
+**手动准备模式**（`IMAGE_GEN_CLI` 未配置）：
+
+推荐比例 2.35:1 或 21:9，用任何工具都行——Midjourney / DALL-E / Canva / 截图。
+
+### 正文插图（可选，无图就不插）
+
+用 `:::wechat-image` 在文章中嵌入插图。**不需要 fallback**——没有插图的文章一样正常渲染和推送。
+
+```markdown
+:::wechat-image
+src: /path/to/image.png
+alt: 图片描述
+caption: 图片说明
+:::
+```
+
+如果配了 `IMAGE_GEN_CLI`，正文插图也可以自动生成（跟封面图同一个 CLI）。
+渲染时脚本会自动将本地图片上传至微信 CDN，替换为 `mmbiz.qpic.cn` URL。
+
+### ⚠️ 图片大小限制
+
+微信 API 对图片有大小限制（2MB）。AI 生成的高清图可能超限，需压缩：
+
+```bash
+# macOS
+sips -Z 2000 /tmp/cover.png --out /tmp/cover-small.png
+
+# Linux（需安装 ImageMagick）
+convert /tmp/cover.png -resize 2000x /tmp/cover-small.png
+```
+
+### ⚠️ 沙箱权限处理
+
+如果 AI 图像工具报沙箱权限错误：
+
+1. **必须向用户申请授权** — 使用 `dangerouslyDisableSandbox: true` 重新执行
+2. **绝不自作主张跳过或用旧封面凑合** — 封面是文章门面，用错比没有还糟
+
+---
+
+## Step 3：推送到草稿箱
+
+### 方式 A：通过 relay 跳板机推送（推荐）
+
+适用于本地 IP 不在微信白名单的场景。
+
+```bash
+# 1. 准备本地文件包
+BUNDLE=/tmp/wechat-draft-bundle
+rm -rf $BUNDLE && mkdir -p $BUNDLE
+cp <渲染后的html> $BUNDLE/article.html
+cp ${PIPELINE_HOME}/scripts/create_wechat_draft.mjs $BUNDLE/
+cp -r ${PIPELINE_HOME}/scripts/lib $BUNDLE/lib
+cp ${PIPELINE_HOME}/.env $BUNDLE/
+cp <封面图> $BUNDLE/cover.png
+# 复制 HTML 中引用的本地图片（如二维码，仅当 .env 中配了 FOOTER_QR_PATH 时）
+if [ -f "${PIPELINE_HOME}/assets/qr.png" ]; then
+  cp ${PIPELINE_HOME}/assets/qr.png $BUNDLE/qr.png
+fi
+
+# 2. 上传到跳板机
+RELAY_HOST=<你的跳板机host>
+ssh $RELAY_HOST "rm -rf /tmp/wechat-draft-bundle && mkdir -p /tmp/wechat-draft-bundle"
+scp -r $BUNDLE/* $RELAY_HOST:/tmp/wechat-draft-bundle/
+scp -r $BUNDLE/lib $RELAY_HOST:/tmp/wechat-draft-bundle/
+# ⚠️ .env 是隐藏文件，* 通配符匹配不到，必须单独 scp
+scp $BUNDLE/.env $RELAY_HOST:/tmp/wechat-draft-bundle/
+
+# 3. 替换 HTML 中的本地图片路径为相对路径
+ssh $RELAY_HOST "sed -i 's|src=\"${PIPELINE_HOME}/assets/|src=\"|g' /tmp/wechat-draft-bundle/article.html"
+
+# 4. 在跳板机上推送
+ssh $RELAY_HOST "cd /tmp/wechat-draft-bundle && node create_wechat_draft.mjs \
+  --html article.html \
+  --thumb-image cover.png \
+  --title '<文章标题>' \
+  --author '<作者名>' \
+  --account <ACCOUNT> \
+  --open-comment 1"
+# --thumb-image 可省略，省略时自动生成纯色占位封面（建议在微信后台替换为正式封面）
+```
+
+### 方式 B：本地直接推送
+
+适用于本地 IP 在微信白名单的场景。
+
+```bash
+${NODE_PATH} ${PIPELINE_HOME}/scripts/create_wechat_draft.mjs \
+  --html <渲染后的html> \
+  --title '<文章标题>' \
+  --author '<作者名>' \
+  --account <ACCOUNT> \
+  --open-comment 1
+# --thumb-image 可省略，省略时自动生成纯色占位封面（900x383，2.35:1）
+```
+
+---
+
+## Step 4：回检验证
+
+推送成功后，**必须从微信 API 拉回草稿验证**，不能只看本地渲染：
+
+```bash
+# 通过跳板机验证
+ssh $RELAY_HOST 'cd /tmp/wechat-draft-bundle && export $(grep -v "^#" .env | xargs) && node -e "
+import {execFileSync} from \"node:child_process\";
+const accountKey = \"<ACCOUNT>\";
+const tokenResp = JSON.parse(execFileSync(\"curl\",[\"-L\",\"-sS\",\"https://api.weixin.qq.com/cgi-bin/stable_token\",\"-H\",\"Content-Type: application/json\",\"-d\",JSON.stringify({grant_type:\"client_credential\",appid:process.env[\"WECHAT_\"+accountKey+\"_APP_ID\"],secret:process.env[\"WECHAT_\"+accountKey+\"_APP_SECRET\"],force_refresh:false})],{encoding:\"utf8\"}));
+const token = tokenResp.access_token;
+const draftResp = JSON.parse(execFileSync(\"curl\",[\"-L\",\"-sS\",\"https://api.weixin.qq.com/cgi-bin/draft/get?access_token=\"+token,\"-H\",\"Content-Type: application/json\",\"-d\",JSON.stringify({media_id:\"<返回的media_id>\"})],{encoding:\"utf8\"}));
+const content = draftResp.news_item[0].content;
+console.log(\"style=属性:\", (content.match(/style=\\\"/g)||[]).length);
+console.log(\"H2标签:\", (content.match(/<h2/g)||[]).length);
+console.log(\"卡片数:\", (content.match(/border-radius:22px/g)||[]).length);
+console.log(\"深色卡片:\", (content.match(/background:#3a3333/g)||[]).length);
+console.log(\"浅色卡片:\", (content.match(/background:#fff8f1/g)||[]).length);
+console.log(\"橙色H2:\", (content.match(/background:#d0784a/g)||[]).length);
+console.log(\"表格数:\", (content.match(/<table/g)||[]).length);
+console.log(\"代码块:\", (content.match(/background:#1b1e23/g)||[]).length);
+console.log(\"引用块:\", (content.match(/padding:14px 16px;border-left:3px/g)||[]).length);
+console.log(\"微信CDN图片:\", (content.match(/mmbiz\\.qpic\\.cn/g)||[]).length);
+console.log(\"position属性:\", (content.match(/position:/g)||[]).length);
+console.log(\"filter属性:\", (content.match(/filter:/g)||[]).length);
+"'
+```
+
+### 回检必须通过的检查项
+
+| 检查项 | 期望值 | 含义 |
+|--------|--------|------|
+| `style=` 属性 | > 50 | 内联样式完整保留 |
+| `<h2` | > 0 | H2 章节块存在 |
+| `border-radius:22px` | 与 MD 中卡片数一致 | 卡片全部渲染 |
+| `background:#3a3333` | 与深色卡片数一致 | 深色卡片样式正确 |
+| `background:#fff8f1` | 与浅色卡片数一致 | 浅色卡片样式正确 |
+| `<table` | 与 MD 中表格数一致 | 表格正确渲染（卡片内表格=0 表示被静默忽略） |
+| `background:#1b1e23` | 与 MD 中代码块数一致 | 围栏代码块正确渲染 |
+| `padding:14px 16px;border-left:3px` | 与 MD 中引用块数一致 | 引用块合并渲染正确 |
+| `mmbiz.qpic.cn` | ≥ 1 | 图片已上传微信 CDN |
+| `position:` | = 0 | 微信合规 |
+| `filter:` | = 0 | 微信合规 |
+
+**如果卡片数为 0 但 MD 中有 `:::wechat-card`：指令语法有问题，回到 Step 0 修复 MD 后重新走 Step 1-4。**
+
+---
+
+## 关键配置
+
+| 项目 | 路径/值 |
+|------|--------|
+| 渲染器 | `${PIPELINE_HOME}/scripts/render_wechat_editorial.mjs` |
+| 草稿脚本 | `${PIPELINE_HOME}/scripts/create_wechat_draft.mjs` |
+| 写作 lint | `${PIPELINE_HOME}/scripts/lint_writing_quality.mjs` |
+| 写作规则 | `${PIPELINE_HOME}/references/khazix-writer/rules.json` |
+| 凭据 | `${PIPELINE_HOME}/.env`（WECHAT\_\<ACCOUNT\>\_APP\_ID/SECRET） |
+| 二维码 | `.env` 中 `FOOTER_QR_PATH` 指定的图片（本地放 `assets/qr.png`，开源用户可自行替换或不配） |
+| 作者 | 按你的公众号填写 |
+| 账号 | `--account <ACCOUNT>`，对应 .env 中的凭据 key |
+| 写作风格 | `khazix-writer` Skill（必须安装） |
+| Node 路径 | `${NODE_PATH}` |
+
+---
+
+## 依赖声明
+
+### Skill 依赖
+- **khazix-writer**（Step 0 风格改写必须使用）— 完整写作指南见 `references/khazix-writer/SKILL.md`
+
+### 外部工具依赖
+- **Node.js ≥ 18**（渲染器运行时）
+- **curl**（微信 API 调用）
+- **SSH/SCP**（relay 跳板机模式）
+- **图片生成 CLI**（Step 2 封面图自动生成，可选配置。配了走自动，没配走手动或占位图 fallback。正文插图同理但无 fallback——没图就不插）
+
+### 零 npm 依赖
+本仓库所有脚本均为纯 Node.js，无需 `npm install`。
+
+---
+
+## 已知坑与教训
+
+1. **必须使用 khazix-writer 改写**：圆桌报告是专业文本，直接渲染会像投研报告不像公众号文章。改写时就要嵌入 `:::wechat-card` / `## H2` 等排版语法，避免二次返工
+2. **compactWechatHtml 不要自动剥 style**：HTML 超 2 万字符时，脚本曾自动剥所有 style 属性导致格式全丢。已修复为始终保留。微信 API 实际不严格执行 2 万字限制
+3. **图片必须走微信 CDN**：HTML 中的本地图片路径会被脚本自动上传并替换为 mmbiz.qpic.cn URL
+4. **跳板机上需替换本地路径**：HTML 中的本地绝对路径在跳板机上不存在，需 sed 替换为相对路径
+5. **AI 图像工具沙箱权限 → 必须向用户申请授权**：不要自作主张跳过或用旧封面凑合。封面是门面，用错比没有还糟
+17. **封面图自动 fallback**：推送脚本 `--thumb-image` 现在是可选参数。未提供时自动生成 900x383 纯色占位 PNG（`#1a1a2e`），保证草稿箱可用。建议在微信后台替换为正式封面
+6. **:::wechat-card 语法必须正确**：
+   - 推荐：`:::wechat-card` + `title:` + `tone:` 键值对（有独立标题样式）
+   - 简写：`:::wechat-card dark` / `:::wechat-card light`（tone 映射正确，无独立标题行）
+   - 渲染引擎有 `lintMarkdownDirectives()` 源码校验，会报告指令格式问题
+7. **双重 lint 覆盖**：`lintMarkdownDirectives()` 检查源码指令 + `lintWechatHtml()` 检查输出 HTML。两者互补，缺一不可
+8. **回检必须看卡片数**：不只看 style 属性数，还要确认 `border-radius:22px` 数量与 MD 中卡片数一致。卡片被静默忽略时 style 数看起来也正常
+9. **封面图必须压缩**：AI 生成的封面图常超 2MB，微信 API 限制会报 45001。用 `sips -Z 2000`（macOS）或 `convert -resize`（Linux）压缩后再推送
+10. **SCP .env 需单独处理**：`.env` 是隐藏文件，`scp *` 匹配不到，必须 `scp .env` 单独传
+11. **卡片内部不支持表格**：`:::wechat-card` 里的 `|...|` 表格语法不会被解析，会被当成普通文本。表格必须放在卡片外部
+12. **摘要元数据 `summary:`**：MD 第一行写 `summary: xxx`，脚本会自动提取为文章 digest。不加的话 digest 默认取正文前 54 字，可能包含 Markdown 反引号等标记
+13. **CTA 护栏：检测到 CTA 信号但未配置 footer 时降级警告**：如果 Markdown 中包含 `## 总结/最后/结语` 或正文有"扫码/二维码/交流群"等 CTA 信号，但 `.env` 和命令行均未提供 footer 配置，脚本会输出警告（而非阻止渲染）。配置了 `.env` 的 `FOOTER_QR_PATH` 则自动附加 footer，用 `--no-footer` 显式跳过
+14. **IP 护栏：推送脚本会拦截非白名单环境的本地推送**：在 `.env` 中配置 `WECHAT_PUBLISH_ALLOWED_HOSTS` 或 `WECHAT_PUBLISH_ALLOWED_IPS` 后，`create_wechat_draft.mjs` 会自动拒绝非白名单环境的推送请求，防止"本地直接跑 → ip_not_in_whitelist"的重复踩坑。临时本地调试可设 `WECHAT_PUBLISH_FORCE_LOCAL=1`
+15. **写作质量质检（khazix-writer 规则）**：渲染前会自动扫描 Markdown 的写作质量。L1（禁用词/标点/结构套话）违规阻止渲染，L2（风格一致性）输出警告。跳过用 `--no-writing-lint`，自定义规则用 `--writing-rules <path>`，L2 也视为错误用 `--strict-writing`。规则文件位于 `references/khazix-writer/rules.json`
+16. **khazix-writer 人格覆盖**：khazix-writer 以「数字生命卡兹克」身份写作，尾部固定带卡兹克署名和邮箱。调用后必须覆盖人格和署名，只保留写作方法论。详见 Step 0「人格覆盖」

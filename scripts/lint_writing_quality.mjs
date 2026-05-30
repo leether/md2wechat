@@ -272,7 +272,7 @@ function scanOverFormatting(text, rules) {
     if (/^\*\*.+\*\*$/.test(line.trim()) || /^\*\*.+\*\*$/.test(line.trim())) {
       consecutiveBold++;
       if (consecutiveBold > rules.l2_min_bold_lines_before_flag) {
-        warnings.push({ type: "过度加粗", detail: "连续加粗行过多，卡兹克风格不建议大量加粗" });
+        warnings.push({ type: "过度加粗", detail: "连续加粗行过多，公众号长文不建议大量加粗" });
         break;
       }
     } else {

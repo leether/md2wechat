@@ -1,10 +1,11 @@
 {
-  "name": "wechat-article-pipeline",
+  "name": "md2wechat",
   "version": "1.0.0",
-  "description": "WeChat Official Account article rendering & publishing pipeline — Markdown to compliant HTML to draft box",
+  "description": "Markdown to WeChat Official Account — compliant HTML rendering & draft publishing",
   "license": "MIT",
   "type": "module",
   "keywords": [
+    "md2wechat",
     "wechat",
     "weixin",
     "公众号",

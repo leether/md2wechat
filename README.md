@@ -1,69 +1,149 @@
-# wechat-article-pipeline
+# md2wechat
 
-微信公众号文章渲染与发布工具链 —— Markdown 转微信合规 HTML，推送草稿箱。
+> *每次渲染完贴到微信后台，排版不是崩了就是样式被吃了一半。后来自己写了个渲染器，终于不用再猜微信会过滤什么了。*
 
-## 功能
+从 Markdown 文件出发，改写 → 排版 → 发布三位一体。渲染器只输出微信白名单合规的 HTML，双重 lint 确保不翻车，一条命令推到草稿箱。
 
-- **自研渲染器**：Markdown → 微信白名单合规 HTML，无需依赖第三方排版工具
-- **扩展排版语法**：深色/浅色卡片、H2 章节块、引用块、代码块、表格
-- **双重校验**：源码级 lint + 输出级 lint，确保 HTML 在微信编辑器中不翻车
-- **CTA 护栏**：自动检测文章中的 CTA 信号，漏传二维码参数时拦截
-- **IP 环境护栏**：防止在非白名单环境误执行推送
-- **草稿箱推送**：直接调用微信 API 创建草稿，支持封面图裁剪
+## 适合 / 不适合
 
-## 快速开始
+**适合你，如果：**
+- 你用 Markdown 写公众号文章，受够了手动排版
+- 你想让 AI（WorkBuddy / Claude Code / Codex）自动走完「写作→渲染→推送」全流程
+- 你需要自定义排版风格，不想被第三方编辑器绑架
+- 你在找一整套可以装进 AI skill 的公众号发布工作流
 
-### 1. 克隆仓库
+**不适合你，如果：**
+- 你需要可视化拖拽编辑——这是命令行工具，没有 GUI
+- 你只想美化纯文本，不涉及微信 API 推送——渲染器可以单独用，但它的价值在端到端
+- 你需要复杂交互组件（轮播、SVG 动画）——微信会过滤 JS/CSS，这些根本不现实
 
-```bash
-git clone https://github.com/<your-username>/wechat-article-pipeline.git
-cd wechat-article-pipeline
-```
-
-### 2. 配置凭据
+## 一分钟跑起来
 
 ```bash
-cp .env.example .env
-# 编辑 .env，填入你的公众号 AppID 和 AppSecret
+git clone https://github.com/leether/md2wechat.git
+cd md2wechat
+cp .env.example .env          # 填入你的公众号 AppID / AppSecret
+
+# 渲染 + 推送，两步搞定
+node scripts/render_wechat_editorial.mjs \
+  --input examples/sample-article.md \
+  --output /tmp/article.html
+# footer 参数从 .env 自动读取（FOOTER_QR_PATH / FOOTER_CTA 等）
+# 不配 .env 则文章无尾部 footer，CTA 护栏降级为警告
+
+node scripts/create_wechat_draft.mjs \
+  --html /tmp/article.html \
+  --account YOUR_ACCOUNT \
+  --author "你的名字"
+# --thumb-image 可省略，省略时自动生成纯色占位封面
 ```
 
-`.env` 格式：
+零 npm 依赖，纯 Node.js，不需要 `npm install`。
 
-```bash
-# 公众号凭据，<ACCOUNT> 为大写英文名
-WECHAT_MY_ACCOUNT_APP_ID=your_app_id
-WECHAT_MY_ACCOUNT_APP_SECRET=your_app_secret
+## 完整流程
+
+```
+素材 / 圆桌报告 MD
+  ↓ Step 0：风格改写（khazix-writer，可选）
+公众号文章 MD
+  ↓ Step 1：渲染 HTML（render_wechat_editorial.mjs）
+微信合规 HTML
+  ↓ Step 2：准备图片（封面图必须有，正文插图可选）
+封面 PNG
+  ↓ Step 3：推送草稿箱（create_wechat_draft.mjs）
+  ↓ Step 4：回检验证
+✅
 ```
 
-### 3. 渲染文章
+### Step 0：风格改写
+
+**可选但推荐。** 如果你用 AI 写公众号，安装 [khazix-writer](https://github.com/KKKKhazix/Khazix-Skills) skill 可以让文章有"活人感"——口语化转场、节奏感、禁用 AI 味高频词。
+
+> ⚠️ **人格覆盖**：khazix-writer 以「数字生命卡兹克」身份写作，尾部带卡兹克署名和邮箱。调用后必须替换为你自己的署名和 CTA。方法论是工具，人格是品牌。
+
+### Step 1：渲染 HTML
 
 ```bash
 node scripts/render_wechat_editorial.mjs \
   --input article.md \
-  --output article.html \
-  --footer-qr ./assets/qr.png \
-  --footer-qr-title "交流群" \
-  --footer-qr-hint "扫码加入" \
-  --footer-cta "和我们一起探索"
+  --output article.html
+# footer 参数从 .env 自动读取，也可用命令行参数覆盖：
+#   --footer-qr ./assets/qr.png --footer-qr-title "交流群" --footer-qr-hint "扫码加入" --footer-cta "和我们一起探索"
 ```
 
-如果文章不需要 CTA，加 `--no-footer` 跳过护栏检查。
+渲染器自动运行两层 lint：
+- **源码级** `lintMarkdownDirectives()`：检查未知指令、缺少关闭标记、非法参数
+- **输出级** `lintWechatHtml()`：检查 `position` / `filter` / `gradient` / `!important` 等微信会过滤的属性
 
-### 4. 推送草稿箱
+**尾部 CTA + 二维码**：在 `.env` 中配置 `FOOTER_QR_PATH` / `FOOTER_CTA` / `FOOTER_QR_TITLE` / `FOOTER_QR_HINT`，渲染时自动附加。不配置则文章无 footer，CTA 护栏降级为警告（不阻止渲染）。如文章明确不需要，加 `--no-footer`。
+
+渲染效果示例（真实二维码）：
+
+<div align="center">
+
+![二维码](assets/qr.png)
+
+*文章尾部自动附加的 CTA + 二维码区块*
+
+</div>
+
+### Step 2：准备图片
+
+**封面图**（推送时必须，无图会自动生成占位图）：
+
+| 模式 | 触发条件 | 行为 |
+|------|----------|------|
+| 自动生成 | `.env` 配了 `IMAGE_GEN_CLI` | 调用 CLI 生成（如 Dreamina） |
+| 手动准备 | 未配 CLI，但提供了 `--thumb-image` | 用你准备的任意图片 |
+| 占位图 fallback | 都没提供 | 自动生成 900×383 纯色 PNG，建议微信后台替换 |
+
+**正文插图**（可选，无图就不插）：
+
+在 Markdown 中用 `:::wechat-image` 嵌入，本地图片会被自动上传至微信 CDN。不需要 fallback——没有插图的文章一样正常。
+
+```markdown
+:::wechat-image
+src: /path/to/image.png
+alt: 图片描述
+caption: 图片说明
+:::
+```
+
+微信对图片有 2MB 限制，高清图需压缩：
+
+```bash
+# macOS
+sips -Z 2000 cover.png --out cover-small.png
+```
+
+### Step 3：推送草稿箱
+
+**方式 A：本地直接推送**（本地 IP 在白名单时）
 
 ```bash
 node scripts/create_wechat_draft.mjs \
   --html article.html \
   --thumb-image cover.png \
-  --account MY_ACCOUNT \
-  --author "作者名"
+  --account YOUR_ACCOUNT \
+  --author "作者名" \
+  --open-comment 1
+# --thumb-image 可省略，省略时自动生成纯色占位封面（建议在微信后台替换）
 ```
 
-### 5. 验证
+**方式 B：通过跳板机推送**（本地 IP 不在白名单时）
 
-推送成功后，脚本会返回 `media_id`。前往 [微信公众号后台](https://mp.weixin.qq.com/) 草稿箱查看。
+```bash
+# 打包 → SCP 到跳板机 → SSH 远程执行推送
+# 详见 SKILL.md Step 3
+```
+
+### Step 4：回检
+
+推送后必须从微信 API 拉回草稿验证，确认卡片数、样式、图片 CDN 等指标正常。详见 SKILL.md Step 4。
 
 ## Markdown 扩展语法
+
+渲染器在标准 Markdown 之上支持以下扩展，写文章时直接用：
 
 ### H2 章节标记
 
@@ -71,37 +151,56 @@ node scripts/create_wechat_draft.mjs \
 ## 章节标题
 ```
 
-渲染为橙色圆角区块（background:#d0784a，白色大字）。
+→ 橙色圆角区块，白色大字，文章分节用
 
-### 深色卡片
+### 深色 / 浅色卡片
 
 ```markdown
 :::wechat-card
-title: 卡片标题
+title: 核心洞察
 tone: dark
-- 列表项1
-- 列表项2
+- 要点1
+- 要点2
 :::
 ```
 
-### 浅色卡片
+→ 深色背景 `#3a3333`，蓝色边框
 
 ```markdown
 :::wechat-card
-title: 卡片标题
+title: 温馨提示
 tone: light
-- 列表项1
+- 补充说明
 :::
 ```
+
+→ 浅橙背景 `#fff8f1`，橙色细边框
+
+> ⚠️ 卡片内部**不支持表格**——表格放在卡片外部。
+> 每个 `:::wechat-card` 必须有对应的 `:::` 关闭标记。
+
+### 正文插图
+
+```markdown
+:::wechat-image
+src: /path/to/image.png
+alt: 图片描述
+caption: 图片说明
+:::
+```
+
+→ 居中图片 + 说明文字，本地图片自动上传微信 CDN
 
 ### 引用块
 
 ```markdown
-> 引用文字
+> 金句或补充说明
 >
-> 支持多行和嵌套列表
+> 支持空行分段和嵌套列表
 > - 嵌套项
 ```
+
+→ 左侧 3px 深色竖线
 
 ### 围栏代码块
 
@@ -111,6 +210,8 @@ echo "hello"
 ```
 ````
 
+→ 深色背景 `#1b1e23`，等宽字体
+
 ### 数据表格
 
 ```markdown
@@ -119,9 +220,38 @@ echo "hello"
 | 值1 | 值2 |
 ```
 
+→ 圆角表格，橙色表头，交替行背景
+
 ### 文章摘要
 
-MD 第一行写 `summary: xxx`，脚本会自动提取为文章 digest。
+MD 第一行写 `summary: xxx`，脚本自动提取为微信文章 digest。不写的话默认取正文前 54 字。
+
+## 写作质量质检
+
+渲染器内置了基于 [khazix-writer](https://github.com/KKKKhazix/Khazix-Skills) 四层质控体系的自动化扫描：
+
+**L1 硬性规则**（违规 → 阻止渲染）：
+- 禁用词："说白了""本质上""不可否认"等 AI 味高频词
+- 禁用标点：中文冒号 `：`、破折号 `——`、中文双引号 `""`
+- 结构套话："首先…其次…最后""在当今…的时代"
+- 空泛工具名："AI工具""某个模型"
+- 超长段落：超过 350 字
+
+**L2 风格一致性**（违规 → 输出警告）：
+- 宏大叙事开头、口语化词组不足、句长节奏单一、情绪标点缺失
+
+```bash
+# 跳过写作质检（不推荐）
+--no-writing-lint
+
+# 自定义规则文件
+--writing-rules ./my-rules.json
+
+# L2 警告也视为错误
+--strict-writing
+```
+
+规则文件：`references/khazix-writer/rules.json`，可自行修改。
 
 ## 微信 HTML 合规规则
 
@@ -131,89 +261,60 @@ MD 第一行写 `summary: xxx`，脚本会自动提取为文章 digest。
 | 高风险 | `position: relative`、`filter:`、`linear-gradient`、`!important`、自定义 `font-family` | Dark Mode 下可能异常 |
 | 安全 | 内联 `style="..."`、inline-block、图片+文字卡片 | ✅ |
 
+详细规则见 [docs/wechat-html-compliance.md](docs/wechat-html-compliance.md)。
+
 ## 项目结构
 
 ```
-wechat-article-pipeline/
+md2wechat/                          # 仓库 = 可安装的 WorkBuddy Skill
+├── SKILL.md                          # Skill 主文件（参数化，无绝对路径）
 ├── scripts/
-│   ├── render_wechat_editorial.mjs    # Markdown → HTML 渲染器
-│   ├── create_wechat_draft.mjs        # 推送草稿箱脚本
+│   ├── render_wechat_editorial.mjs   # Markdown → HTML 渲染器
+│   ├── create_wechat_draft.mjs       # 推送草稿箱脚本
+│   ├── lint_writing_quality.mjs      # 写作质量质检
 │   └── lib/
-│       ├── memory-lib.mjs             # 参数解析工具
-│       └── wechat-draft-relay.mjs     # Relay 辅助工具
+│       ├── memory-lib.mjs            # 参数解析工具
+│       └── wechat-draft-relay.mjs    # Relay 辅助工具
+├── references/khazix-writer/         # 写作指南和规则（MIT License）
+│   ├── SKILL.md                      # 原版写作指南
+│   ├── rules.json                    # 可执行的 lint 规则
+│   ├── style_examples.md             # 风格示例
+│   ├── content_methodology.md        # 选题方法论
+│   └── LICENSE
 ├── examples/
-│   └── sample-article.md              # 示例文章
-├── assets/                            # 放你的二维码、封面模板等
-├── docs/                              # 文档
-├── .env.example                       # 环境变量模板
-├── .gitignore
+│   └── sample-article.md             # 示例文章
+├── docs/
+│   └── wechat-html-compliance.md     # 微信 HTML 合规详解
+├── assets/                           # 放你的二维码等资源
+├── .env.example                      # 环境变量模板
 ├── LICENSE
-├── package.json
 └── README.md
 ```
 
-## Relay 跳板机（可选）
-
-如果你的本地 IP 不在微信白名单中，可以通过 SSH 跳板机推送：
+## 安装为 WorkBuddy Skill
 
 ```bash
-# 1. 打包文件
-BUNDLE=/tmp/wechat-draft-bundle
-mkdir -p $BUNDLE
-cp article.html $BUNDLE/
-cp cover.png $BUNDLE/
-cp .env $BUNDLE/
+# 1. 克隆到任意位置
+git clone https://github.com/leether/md2wechat.git
 
-# 2. 上传到跳板机
-scp -r $BUNDLE/* relay-host:/tmp/wechat-draft-bundle/
-scp $BUNDLE/.env relay-host:/tmp/wechat-draft-bundle/  # 隐藏文件需单独传
+# 2. 创建符号链接（skill 名称 = 仓库名称）
+ln -s /path/to/md2wechat ~/.workbuddy/skills/md2wechat
 
-# 3. 在跳板机上执行推送
-ssh relay-host "cd /tmp/wechat-draft-bundle && node create_wechat_draft.mjs \
-  --html article.html --thumb-image cover.png --account MY_ACCOUNT --author '作者名'"
+# 3. 配置环境变量
+cd md2wechat && cp .env.example .env
+# 编辑 .env，填入公众号凭据和路径
+
+# 4. 设置 PIPELINE_HOME
+export PIPELINE_HOME=/path/to/md2wechat
 ```
 
-## 已知限制
+之后在 WorkBuddy 中说"推公众号""发公众号"即可触发完整流程。
 
-1. **卡片内部不支持表格**：`:::wechat-card` 里的表格语法不会被解析，需放在卡片外部
-2. **不支持 Mermaid / PlantUML**：微信编辑器不支持 JS 引擎，流程图用 ASCII 或卡片代替
-3. **封面图需自行准备**：渲染器不生成封面图，推荐使用 [Dreamina](https://dreamina.jianying.com/) 等 AI 工具
-4. **图片需走微信 CDN**：脚本会自动上传本地图片并替换为 `mmbiz.qpic.cn` URL
+## 安全护栏
 
-## 写作质量质检
-
-渲染器内置了基于 [khazix-writer](https://github.com/KKKKhazix/Khazix-Skills) 四层质控体系的自动化扫描：
-
-### L1 硬性规则（违规阻止渲染）
-
-- 禁用词扫描："说白了"、"本质上"、"不可否认"等 AI 味高频词
-- 禁用标点扫描：中文冒号 `：`、破折号 `——`、中文双引号 `""`
-- 结构套话扫描："首先…其次…最后"、"在当今…的时代"
-- 空泛工具名扫描："AI工具"、"某个模型"等模糊表述
-- 段落长度检查：超过 350 字的段落
-
-### L2 风格一致性（违规输出警告）
-
-- 开头检查：是否宏大叙事而非具体事件切入
-- 口语化词组统计：全文至少 8 个不同的口语化表达
-- 句长节奏分析：连续 3 句句长相近则警告
-- 情绪标点检测：是否使用了 `。。。` `？？？` `= =`
-- 过度格式化检测：连续加粗行过多
-
-### 自定义规则
-
-规则文件位于 `references/khazix-writer/rules.json`，可自行修改禁用词列表、段落长度阈值等。
-
-```bash
-# 跳过写作质检（不推荐）
-node scripts/render_wechat_editorial.mjs --input article.md --output out.html --no-writing-lint
-
-# 使用自定义规则文件
-node scripts/render_wechat_editorial.mjs --input article.md --output out.html --writing-rules ./my-rules.json
-
-# L2 警告也视为错误
-node scripts/render_wechat_editorial.mjs --input article.md --output out.html --strict-writing
-```
+- **CTA 护栏**：文章含 CTA 信号（总结/结语/扫码关键词）但未配置 footer 时，输出警告（不阻止渲染）。配了 `.env` 的 `FOOTER_QR_PATH` 则自动附加
+- **IP 环境护栏**：在 `.env` 中配置 `WECHAT_PUBLISH_ALLOWED_HOSTS` / `WECHAT_PUBLISH_ALLOWED_IPS`，非白名单环境阻止推送
+- **写作质检护栏**：L1 规则违规阻止渲染，不会带着 AI 味文章上线
 
 ## 致谢
 
