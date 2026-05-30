@@ -312,6 +312,12 @@ export PIPELINE_HOME=/path/to/md2wechat
 - **IP 环境护栏**：在 `.env` 中配置 `WECHAT_PUBLISH_ALLOWED_HOSTS` / `WECHAT_PUBLISH_ALLOWED_IPS`，非白名单环境阻止推送
 - **写作质检护栏**：L1 规则违规阻止渲染，不会带着 AI 味文章上线
 
+## 交流群
+
+<p align="center"><img src="assets/qr.png" alt="微信群二维码" width="200"></p>
+
+<p align="center">公众号排版遇到问题？想交流 Markdown 写作？<br>扫码加入交流群，一起折腾。</p>
+
 ## 致谢
 
 - 写作风格指南和质检规则衍生自 [KKKKhazix/Khazix-Skills](https://github.com/KKKKhazix/Khazix-Skills)（MIT License）
