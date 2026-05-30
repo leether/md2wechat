@@ -1,0 +1,24 @@
+{
+  "name": "wechat-article-pipeline",
+  "version": "1.0.0",
+  "description": "WeChat Official Account article rendering & publishing pipeline — Markdown to compliant HTML to draft box",
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "wechat",
+    "weixin",
+    "公众号",
+    "markdown",
+    "html",
+    "publishing",
+    "article"
+  ],
+  "scripts": {
+    "render": "node scripts/render_wechat_editorial.mjs",
+    "publish": "node scripts/create_wechat_draft.mjs",
+    "check": "node --check scripts/render_wechat_editorial.mjs && node --check scripts/create_wechat_draft.mjs"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
