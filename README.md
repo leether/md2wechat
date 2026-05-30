@@ -79,13 +79,9 @@ node scripts/render_wechat_editorial.mjs \
 
 渲染效果示例（真实二维码）：
 
-<div align="center">
+<p align="center"><img src="assets/qr.png" alt="二维码" width="200"></p>
 
-![二维码](assets/qr.png)
-
-*文章尾部自动附加的 CTA + 二维码区块*
-
-</div>
+<p align="center"><em>文章尾部自动附加的 CTA + 二维码区块</em></p>
 
 ### Step 2：准备图片
 
