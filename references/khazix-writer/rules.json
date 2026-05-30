@@ -1,0 +1,142 @@
+{
+  "_source": "Extracted from KKKKhazix/Khazix-Skills (MIT License)",
+  "_description": "Machine-readable writing quality rules derived from khazix-writer. L1 rules are enforced (block rendering on violation), L2 rules generate warnings.",
+
+  "l1_banned_words": [
+    "说白了",
+    "意味着什么",
+    "这意味着",
+    "本质上",
+    "换句话说",
+    "不可否认",
+    "综上所述",
+    "总的来说",
+    "值得注意的是",
+    "不难发现",
+    "让我们来看看",
+    "接下来让我们"
+  ],
+
+  "l1_banned_words_replacements": {
+    "说白了": "坦率的讲 / 其实就是",
+    "意味着什么": "那结果会怎样呢",
+    "这意味着": "所以呢",
+    "本质上": "说到底 / 其实",
+    "换句话说": "你想想看 / 也就是说",
+    "不可否认": "直接正面陈述",
+    "综上所述": "用具体的回扣句替代",
+    "总的来说": "用具体的回扣句替代",
+    "值得注意的是": "直接说",
+    "不难发现": "直接说",
+    "让我们来看看": "删掉，直接进入",
+    "接下来让我们": "删掉，直接进入"
+  },
+
+  "l1_banned_punctuation": [
+    { "char": "：", "reason": "冒号 → 用逗号替代", "replacement": "，" },
+    { "char": "——", "reason": "破折号 → 用逗号或句号替代", "replacement": "，" },
+    { "char": "\u201c", "reason": "左双引号 → 用「」或不加引号", "replacement": "「" },
+    { "char": "\u201d", "reason": "右双引号 → 用「」或不加引号", "replacement": "」" }
+  ],
+
+  "l1_banned_structures": [
+    "首先.*其次.*最后",
+    "让我们来看看",
+    "接下来让我们",
+    "在当今.*的时代",
+    "随着.*的不断.*发展",
+    "在.*快速发展的.*时代",
+    "随着.*的不断深入"
+  ],
+
+  "l1_banned_vague_tools": [
+    "AI工具",
+    "某个模型",
+    "相关技术",
+    "某AI",
+    "一些工具",
+    "相关工具"
+  ],
+
+  "l1_max_paragraph_chars": 350,
+
+  "l2_no_go_openings": [
+    "在当今.*的时代",
+    "随着.*的不断.*发展",
+    "在.*快速发展的.*今天",
+    "随着.*的不断深入",
+    "在.*的时代",
+    "众所周知",
+    "不可否认的是"
+  ],
+
+  "l2_min_colloquial_expressions": 8,
+
+  "l2_colloquial_expressions": [
+    "坦率的讲",
+    "说真的",
+    "我是真的觉得",
+    "反正我觉得",
+    "怎么说呢",
+    "其实吧",
+    "你想想看",
+    "我跟你说",
+    "回到.*这块",
+    "这块需要注意",
+    "顺着上面的",
+    "我有时候觉得",
+    "我一直觉得",
+    "我自己的感受是",
+    "我始终坚信",
+    "说实话",
+    "我自己也还在摸索",
+    "愚钝如我",
+    "感觉太爽了",
+    "我当时就愣住了",
+    "想想就觉得",
+    "太离谱了",
+    "这玩意",
+    "不是哥们",
+    "我寻思",
+    "真的就是",
+    "这尼玛",
+    "太牛逼了",
+    "比较骚的事",
+    "你敢信",
+    "鬼使神差",
+    "一时间",
+    "可能有些想法还不成熟"
+  ],
+
+  "l2_sentence_variance_threshold": 5,
+  "l2_max_consecutive_similar_length": 3,
+  "l2_min_short_sentence_breaks": 3,
+  "l2_emotion_punctuation": ["。。。", "？？？", "= ="],
+
+  "l2_min_bold_lines_before_flag": 2,
+  "l2_max_bullet_items_before_flag": 3,
+
+  "l3_check_patterns": [
+    {
+      "id": "viewpoint_support",
+      "description": "每个核心观点是否有具体的人/场景/细节/数据支撑",
+      "auto_detect": false
+    },
+    {
+      "id": "knowledge_output_style",
+      "description": "知识点是否以'聊着聊着顺手掏出来'的方式呈现，而非教科书式科普",
+      "banned_phrases": ["下面我来介绍", "首先需要了解", "让我们先了解"],
+      "auto_detect": true
+    },
+    {
+      "id": "cultural_elevation",
+      "description": "是否有至少一处从具体事件连接到更大的文化/哲学/历史参照物",
+      "auto_detect": false
+    },
+    {
+      "id": "empathy_check",
+      "description": "讲核心观点时是否有对对方立场的理解和承认",
+      "auto_detect": false
+    }
+  ]
+}

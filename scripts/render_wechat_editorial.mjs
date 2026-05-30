@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs, printHelp, requireArg } from "./lib/memory-lib.mjs";
+import { lintWritingQuality, formatReport as formatWritingReport } from "./lint_writing_quality.mjs";
 
 function escapeHtml(value) {
   return String(value)
@@ -1205,6 +1206,9 @@ function main(argv = process.argv.slice(2)) {
       "  --footer-qr-title <text> Footer QR title",
       "  --footer-qr-hint <text> Footer QR hint",
       "  --no-footer            Skip CTA/footer check (use when article has no QR)",
+      "  --no-writing-lint      Skip writing quality lint (L1 banned words/punctuation)",
+      "  --writing-rules <path> Custom rules.json path (default: references/khazix-writer/rules.json)",
+      "  --strict-writing       Treat L2 warnings as errors",
       "  --help                 Show help",
     ]);
     return 0;
@@ -1228,6 +1232,22 @@ function main(argv = process.argv.slice(2)) {
       `   请添加 --footer-qr <path> [--footer-cta <text>] [--footer-qr-title <text>] [--footer-qr-hint <text>]，\n` +
       `   或显式使用 --no-footer 跳过此检查。`,
     );
+  }
+
+  // ── 写作质量质检（基于 khazix-writer 四层质控体系） ──
+  if (!args["no-writing-lint"]) {
+    const writingRulesPath = args["writing-rules"] || undefined;
+    const writingResult = lintWritingQuality(markdown, writingRulesPath, {
+      strict: args["strict-writing"],
+    });
+    console.log(formatWritingReport(writingResult));
+    if (!writingResult.passed) {
+      throw new Error(
+        `❌ 渲染被拦截：写作质量 L1 检查未通过（${writingResult.l1.totalHits}处硬性违规）。\n` +
+        `   请修复上方报告中的 L1 问题后重新渲染。\n` +
+        `   如需跳过写作质检，使用 --no-writing-lint 参数。`,
+      );
+    }
   }
 
   const html = renderWechatEditorial(markdown, {

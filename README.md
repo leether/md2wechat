@@ -180,6 +180,46 @@ ssh relay-host "cd /tmp/wechat-draft-bundle && node create_wechat_draft.mjs \
 3. **封面图需自行准备**：渲染器不生成封面图，推荐使用 [Dreamina](https://dreamina.jianying.com/) 等 AI 工具
 4. **图片需走微信 CDN**：脚本会自动上传本地图片并替换为 `mmbiz.qpic.cn` URL
 
+## 写作质量质检
+
+渲染器内置了基于 [khazix-writer](https://github.com/KKKKhazix/Khazix-Skills) 四层质控体系的自动化扫描：
+
+### L1 硬性规则（违规阻止渲染）
+
+- 禁用词扫描："说白了"、"本质上"、"不可否认"等 AI 味高频词
+- 禁用标点扫描：中文冒号 `：`、破折号 `——`、中文双引号 `""`
+- 结构套话扫描："首先…其次…最后"、"在当今…的时代"
+- 空泛工具名扫描："AI工具"、"某个模型"等模糊表述
+- 段落长度检查：超过 350 字的段落
+
+### L2 风格一致性（违规输出警告）
+
+- 开头检查：是否宏大叙事而非具体事件切入
+- 口语化词组统计：全文至少 8 个不同的口语化表达
+- 句长节奏分析：连续 3 句句长相近则警告
+- 情绪标点检测：是否使用了 `。。。` `？？？` `= =`
+- 过度格式化检测：连续加粗行过多
+
+### 自定义规则
+
+规则文件位于 `references/khazix-writer/rules.json`，可自行修改禁用词列表、段落长度阈值等。
+
+```bash
+# 跳过写作质检（不推荐）
+node scripts/render_wechat_editorial.mjs --input article.md --output out.html --no-writing-lint
+
+# 使用自定义规则文件
+node scripts/render_wechat_editorial.mjs --input article.md --output out.html --writing-rules ./my-rules.json
+
+# L2 警告也视为错误
+node scripts/render_wechat_editorial.mjs --input article.md --output out.html --strict-writing
+```
+
+## 致谢
+
+- 写作风格指南和质检规则衍生自 [KKKKhazix/Khazix-Skills](https://github.com/KKKKhazix/Khazix-Skills)（MIT License）
+- 原始风格文档详见 `references/khazix-writer/` 目录
+
 ## 许可证
 
 MIT License — 详见 [LICENSE](LICENSE)
