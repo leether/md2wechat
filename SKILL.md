@@ -212,8 +212,11 @@ npm install @cnbcool/cnb-cli
 ${NODE_PATH} ${PIPELINE_HOME}/scripts/render_wechat_editorial.mjs \
   --input <markdown文件> \
   --output <输出html路径> \
-  --env ${PIPELINE_HOME}/.env
+  --env ${PIPELINE_HOME}/.env \
+  --lint-report-out <lint报告json路径>
 # ⚠️ --env 必须显式指定，否则 footer（二维码+CTA）不会注入
+# --lint-report-out 将四层 lint 结果（写作/GEO/MD指令/HTML合规）输出为结构化 JSON
+#    供 create_wechat_draft.mjs 的 --lint-report 参数读取，合并到 Audit Log 的【渲染质检】区块
 # footer 参数会自动从 .env 读取（FOOTER_QR_PATH / FOOTER_CTA / FOOTER_QR_TITLE / FOOTER_QR_HINT）
 # 如需覆盖 .env 配置，可用命令行参数：
 #   --footer-qr /path/to/qr.png --footer-cta "文案" --footer-qr-title "标题" --footer-qr-hint "提示"
@@ -346,6 +349,7 @@ convert /tmp/cover.png -resize 2000x /tmp/cover-small.png
 BUNDLE=/tmp/wechat-draft-bundle
 rm -rf $BUNDLE && mkdir -p $BUNDLE
 cp <渲染后的html> $BUNDLE/article.html
+cp <lint报告json> $BUNDLE/lint.json    # ← 新增：将渲染时生成的 lint 报告一并打包
 cp ${PIPELINE_HOME}/scripts/create_wechat_draft.mjs $BUNDLE/
 cp -r ${PIPELINE_HOME}/scripts/lib $BUNDLE/lib
 cp ${PIPELINE_HOME}/.env $BUNDLE/
@@ -387,11 +391,13 @@ ssh $RELAY_HOST "sed -i -E 's|src=\"((?:/tmp/|/Users/|/home/)[^\"]*/([^\"/]+))\"
 ssh $RELAY_HOST "cd /tmp/wechat-draft-bundle && node create_wechat_draft.mjs \
   --html article.html \
   --thumb-image cover.png \
+  --lint-report lint.json \
   --title '<文章标题>' \
   --author '<作者名>' \
   --account <ACCOUNT> \
   --open-comment 1"
 # --thumb-image 可省略，省略时自动生成纯色占位封面（建议在微信后台替换为正式封面）
+# --lint-report 将渲染质检结果合并到 Audit Log，不传时 Audit Log 不含【渲染质检】区块
 ```
 
 ### 方式 B：本地直接推送
@@ -401,11 +407,13 @@ ssh $RELAY_HOST "cd /tmp/wechat-draft-bundle && node create_wechat_draft.mjs \
 ```bash
 ${NODE_PATH} ${PIPELINE_HOME}/scripts/create_wechat_draft.mjs \
   --html <渲染后的html> \
+  --lint-report <lint报告json> \
   --title '<文章标题>' \
   --author '<作者名>' \
   --account <ACCOUNT> \
   --open-comment 1
 # --thumb-image 可省略，省略时自动生成纯色占位封面（900x383，2.35:1）
+# --lint-report 将渲染质检结果合并到 Audit Log，不传时 Audit Log 不含【渲染质检】区块
 ```
 
 ---
@@ -445,6 +453,12 @@ HTML: /tmp/elon-smart-requirements-geo-v3.html
   style属性: 136
   position: 0 ✅
   filter: 0 ✅
+
+【渲染质检】          ← 当推送时传入 --lint-report 时显示
+  写作质量: L1✅ (0处)  L2⚠️ (2处)
+  GEO合规: L1✅ (0处)  L2⚠️ (1处)
+  MD指令: ✅ (0处警告)
+  HTML合规: ✅ (0处错误 / 0处警告)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 ```

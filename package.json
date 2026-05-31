@@ -1,6 +1,6 @@
 {
   "name": "md2wechat",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Markdown to WeChat Official Account — compliant HTML rendering & draft publishing",
   "license": "MIT",
   "type": "module",

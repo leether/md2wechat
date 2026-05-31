@@ -320,6 +320,71 @@ function getAssetList(htmlPath) {
   return assets;
 }
 
+function readLintReport(lintReportPath) {
+  if (!lintReportPath || !fs.existsSync(lintReportPath)) return null;
+  try {
+    const raw = fs.readFileSync(lintReportPath, "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function formatLintSection(report) {
+  if (!report) return [];
+  const lines = [""];
+  lines.push("【渲染质检】");
+
+  // Writing
+  if (report.writing) {
+    if (report.writing.skipped) {
+      lines.push("  写作质量: 已跳过");
+    } else {
+      const w = report.writing;
+      lines.push(`  写作质量: L1${w.l1Passed ? "✅" : "❌"} (${w.l1Hits}处)  L2${w.l2Passed ? "✅" : "⚠️"} (${w.l2Warnings}处)`);
+    }
+  }
+
+  // GEO
+  if (report.geo) {
+    if (report.geo.skipped) {
+      lines.push("  GEO合规: 已跳过");
+    } else {
+      const g = report.geo;
+      lines.push(`  GEO合规: L1${g.l1Passed ? "✅" : "❌"} (${g.l1Count}处)  L2${g.l2Count === 0 ? "✅" : "⚠️"} (${g.l2Count}处)${g.strict ? " [严格模式]" : ""}`);
+    }
+  }
+
+  // Markdown directives
+  if (report.markdownDirectives) {
+    const m = report.markdownDirectives;
+    lines.push(`  MD指令: ${m.passed ? "✅" : "⚠️"} (${m.warningCount}处警告)`);
+    if (m.warnings && m.warnings.length > 0) {
+      for (const w of m.warnings) {
+        lines.push(`    🟡 第${w.line}行: ${w.rule}`);
+      }
+    }
+  }
+
+  // Wechat HTML
+  if (report.wechatHtml) {
+    const h = report.wechatHtml;
+    lines.push(`  HTML合规: ${h.passed ? "✅" : "❌"} (${h.errorCount}处错误 / ${h.warningCount}处警告)`);
+    if (h.errors && h.errors.length > 0) {
+      for (const e of h.errors) {
+        lines.push(`    🔴 ${e.rule} (×${e.count})`);
+      }
+    }
+    if (h.warnings && h.warnings.length > 0) {
+      for (const w of h.warnings) {
+        lines.push(`    🟡 ${w.rule} (×${w.count})`);
+      }
+    }
+  }
+
+  return lines;
+}
+
 function formatAuditLog(audit) {
   const lines = [
     "",
@@ -359,6 +424,10 @@ function formatAuditLog(audit) {
   lines.push(`  style属性: ${audit.verify.styleCount}`);
   lines.push(`  position: ${audit.verify.positionCount} ${audit.verify.positionCount === 0 ? "✅" : "❌"}`);
   lines.push(`  filter: ${audit.verify.filterCount} ${audit.verify.filterCount === 0 ? "✅" : "❌"}`);
+
+  if (audit.lintReport) {
+    lines.push(...formatLintSection(audit.lintReport));
+  }
 
   lines.push("");
   lines.push("━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -1276,6 +1345,7 @@ export function resolveDraftPlan(argv = process.argv.slice(2)) {
     sourceMdPath: args["source-md"] ? path.resolve(process.cwd(), args["source-md"]) : "",
     thumbImagePath,
     pictureImagePaths: imagePaths.map((imagePath) => path.resolve(process.cwd(), imagePath)),
+    lintReportPath: args["lint-report"] ? path.resolve(process.cwd(), String(args["lint-report"])) : "",
     payload: {
       articles: [draftArticle],
     },
@@ -1317,6 +1387,7 @@ export async function createWechatDraft(argv = process.argv.slice(2)) {
       "  --crop-1-1 <coords>          Optional square cover crop",
       "  --env <path>                 Override .env path",
       "  --keep-inline-styles         Keep existing style= attrs instead of compacting HTML",
+      "  --lint-report <path>         Structured lint report JSON from render_wechat_editorial.mjs",
       "  --preflight                  Run publish checks and print a structured report",
       "  --dry-run                    Print resolved payload without calling WeChat",
       "  --help                       Show help",
@@ -1416,6 +1487,7 @@ export async function createWechatDraft(argv = process.argv.slice(2)) {
         account: credentials.account,
       },
       assets,
+      lintReport: readLintReport(plan.lintReportPath),
       push: {
         status: result.errmsg || "ok",
         mediaId: result.media_id,

@@ -1361,6 +1361,13 @@ function normalizeOutputPath(inputPath, explicitOutput) {
   return absoluteInput.slice(0, absoluteInput.length - ext.length) + ".html";
 }
 
+function writeLintReportOut(lintReport, outPath) {
+  if (!outPath) return;
+  const absPath = path.resolve(process.cwd(), outPath);
+  fs.mkdirSync(path.dirname(absPath), { recursive: true });
+  fs.writeFileSync(absPath, JSON.stringify(lintReport, null, 2));
+}
+
 function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
 
@@ -1386,6 +1393,7 @@ function main(argv = process.argv.slice(2)) {
       "  --strict-writing       Treat L2 warnings as errors",
       "  --no-geo-lint          Skip GEO compliance lint (summary/structure/AI-readability)",
       "  --strict-geo           Treat GEO L2 warnings as errors",
+      "  --lint-report-out <path> Write structured lint results to JSON file",
       "  --help                 Show help",
     ]);
     return 0;
@@ -1399,6 +1407,18 @@ function main(argv = process.argv.slice(2)) {
 
   const outputPath = normalizeOutputPath(inputPath, args.output);
   const markdown = fs.readFileSync(absoluteInput, "utf8");
+
+  // 初始化 lint 报告收集器
+  const lintReport = {
+    version: "1.0",
+    timestamp: new Date().toISOString(),
+    source: absoluteInput,
+    writing: null,
+    geo: null,
+    markdownDirectives: null,
+    wechatHtml: null,
+  };
+  const lintReportOut = args["lint-report-out"] ? String(args["lint-report-out"]) : "";
 
   // 推断标题：命令行 > 文件名
   const inferredTitle = args.title
@@ -1438,21 +1458,41 @@ function main(argv = process.argv.slice(2)) {
     const writingResult = lintWritingQuality(markdown, writingRulesPath, {
       strict: args["strict-writing"],
     });
+    lintReport.writing = {
+      passed: writingResult.passed,
+      l1Passed: writingResult.l1?.passed ?? true,
+      l1Hits: writingResult.l1?.totalHits ?? 0,
+      l2Passed: writingResult.l2?.passed ?? true,
+      l2Warnings: writingResult.l2?.warnings?.length ?? 0,
+      skipped: writingResult.skipped || false,
+    };
     console.log(formatWritingReport(writingResult));
     if (!writingResult.passed) {
+      writeLintReportOut(lintReport, lintReportOut);
       throw new Error(
         `❌ 渲染被拦截：写作质量 L1 检查未通过（${writingResult.l1.totalHits}处硬性违规）。\n` +
         `   请修复上方报告中的 L1 问题后重新渲染。\n` +
         `   如需跳过写作质检，使用 --no-writing-lint 参数。`,
       );
     }
+  } else {
+    lintReport.writing = { skipped: true };
   }
 
   // ── GEO 合规检查（生成式引擎优化） ──
   if (!args["no-geo-lint"]) {
     const geoResult = lintGeoCompliance(markdown, inferredTitle);
+    const geoPassed = geoResult.l1.length === 0 && !(args["strict-geo"] && geoResult.l2.length > 0);
+    lintReport.geo = {
+      passed: geoPassed,
+      l1Passed: geoResult.l1.length === 0,
+      l1Count: geoResult.l1.length,
+      l2Count: geoResult.l2.length,
+      strict: args["strict-geo"] || false,
+    };
     console.log(formatGeoReport(geoResult));
-    if (geoResult.l1.length > 0 || (args["strict-geo"] && geoResult.l2.length > 0)) {
+    if (!geoPassed) {
+      writeLintReportOut(lintReport, lintReportOut);
       const level = args["strict-geo"] ? "L1/L2" : "L1";
       throw new Error(
         `❌ 渲染被拦截：GEO 合规 ${level} 检查未通过。\n` +
@@ -1460,6 +1500,8 @@ function main(argv = process.argv.slice(2)) {
         `   如需跳过 GEO 检查，使用 --no-geo-lint 参数。`,
       );
     }
+  } else {
+    lintReport.geo = { skipped: true };
   }
 
   const html = renderWechatEditorial(markdown, {
@@ -1477,6 +1519,11 @@ function main(argv = process.argv.slice(2)) {
 
   // 渲染前先做 Markdown 源码级指令校验
   const directiveWarnings = lintMarkdownDirectives(markdown);
+  lintReport.markdownDirectives = {
+    passed: directiveWarnings.length === 0,
+    warningCount: directiveWarnings.length,
+    warnings: directiveWarnings.map((w) => ({ line: w.line, rule: w.rule })),
+  };
   console.log(formatDirectiveLintReport(directiveWarnings));
   if (directiveWarnings.length > 0) {
     console.error("\n⚠️  Markdown 源码中存在指令格式问题，部分卡片可能未正确渲染。");
@@ -1484,12 +1531,22 @@ function main(argv = process.argv.slice(2)) {
 
   // 渲染后自动校验微信 HTML 合规性
   const lintResult = lintWechatHtml(html);
+  lintReport.wechatHtml = {
+    passed: lintResult.passed,
+    errorCount: lintResult.errors.length,
+    warningCount: lintResult.warnings.length,
+    errors: lintResult.errors,
+    warnings: lintResult.warnings,
+  };
   console.log(outputPath);
   console.log(formatLintReport(lintResult));
 
   if (!lintResult.passed) {
     console.error("\n⚠️  输出 HTML 包含微信会过滤的内容，请检查上方致命错误列表。");
   }
+
+  // 写入结构化 lint 报告（供 create_wechat_draft.mjs 读取合并到 Audit Log）
+  writeLintReportOut(lintReport, lintReportOut);
 
   return lintResult.passed ? 0 : 2;
 }
