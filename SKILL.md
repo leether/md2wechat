@@ -410,12 +410,49 @@ ${NODE_PATH} ${PIPELINE_HOME}/scripts/create_wechat_draft.mjs \
 
 ---
 
-## Step 4：回检验证
+## Step 4：回检验证（自动输出 Audit Log）
 
-推送成功后，**必须从微信 API 拉回草稿验证**，不能只看本地渲染：
+推送成功后，`create_wechat_draft.mjs` **自动调用微信 API 拉回草稿并输出完整 Audit Log**。你不需要手动跑回检脚本——Audit Log 会直接在控制台输出：
+
+```
+━━━ md2wechat Audit Log ━━━
+时间: 2026-05-31T10:49:48.123Z
+
+【源文件】
+MD: /tmp/elon-smart-requirements.md
+HTML: /tmp/elon-smart-requirements-geo-v3.html
+标题: 马斯克五步工作法：聪明人的需求最危险
+作者: 新褶
+账号: XINZHE
+
+【资源清单】
+  cover.png (1344.0KB)
+  elon-img1-small.jpg (62.0KB)
+  elon-img2-small.jpg (189.0KB)
+  qr.png (127.0KB)
+
+【推送结果】
+  状态: ok
+  media_id: a4juiPtSKGothnS6V3X9p...
+  thumb_media_id: a4juiPtSKGothnS6V3X9p...
+
+【微信回检】
+  img标签: 3
+  CDN图片: 3
+  h2标题: 5
+  卡片: 5 (深4 / 浅1)
+  引用块: 1
+  style属性: 136
+  position: 0 ✅
+  filter: 0 ✅
+
+━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+如果 Audit Log 生成失败（如网络问题），会输出警告但不阻止流程，此时可手动回检：
 
 ```bash
-# 通过跳板机验证
+# 手动回检（备用）
 ssh $RELAY_HOST 'cd /tmp/wechat-draft-bundle && export $(grep -v "^#" .env | xargs) && node -e "
 import {execFileSync} from \"node:child_process\";
 const accountKey = \"<ACCOUNT>\";
@@ -423,17 +460,10 @@ const tokenResp = JSON.parse(execFileSync(\"curl\",[\"-L\",\"-sS\",\"https://api
 const token = tokenResp.access_token;
 const draftResp = JSON.parse(execFileSync(\"curl\",[\"-L\",\"-sS\",\"https://api.weixin.qq.com/cgi-bin/draft/get?access_token=\"+token,\"-H\",\"Content-Type: application/json\",\"-d\",JSON.stringify({media_id:\"<返回的media_id>\"})],{encoding:\"utf8\"}));
 const content = draftResp.news_item[0].content;
-console.log(\"img标签:\", (content.match(/<img/g)||[]).length);
-console.log(\"微信CDN图片:\", (content.match(/mmbiz\\.qpic\\.cn/g)||[]).length);
-console.log(\"style=属性:\", (content.match(/style=\\\"/g)||[]).length);
-console.log(\"H2标签:\", (content.match(/<h2/g)||[]).length);
-console.log(\"卡片数:\", (content.match(/border-radius:22px/g)||[]).length);
-console.log(\"深色卡片:\", (content.match(/background:#3a3333/g)||[]).length);
-console.log(\"浅色卡片:\", (content.match(/background:#fff8f1/g)||[]).length);
-console.log(\"橙色H2:\", (content.match(/background:#d0784a/g)||[]).length);
-console.log(\"表格数:\", (content.match(/<table/g)||[]).length);
-console.log(\"代码块:\", (content.match(/background:#1b1e23/g)||[]).length);
-console.log(\"引用块:\", (content.match(/padding:14px 16px;border-left:3px/g)||[]).length);
+console.log(\"img:\", (content.match(/<img/g)||[]).length);
+console.log(\"CDN:\", (content.match(/mmbiz\\.qpic\\.cn/g)||[]).length);
+console.log(\"h2:\", (content.match(/<h2/g)||[]).length);
+console.log(\"cards:\", (content.match(/border-radius:22px/g)||[]).length);
 "'
 ```
 

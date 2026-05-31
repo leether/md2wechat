@@ -274,6 +274,97 @@ function getStableAccessToken({ appId, appSecret }) {
   return json.access_token;
 }
 
+// ── Audit Log: 推送后自动回检 ──
+
+function fetchDraftContent(accessToken, mediaId) {
+  const url = `https://api.weixin.qq.com/cgi-bin/draft/get?access_token=${encodeURIComponent(accessToken)}`;
+  const result = postJson(url, { media_id: mediaId });
+  if (result.errcode && result.errcode !== 0) {
+    throw new Error(`draft/get failed: ${JSON.stringify(result)}`);
+  }
+  return result.news_item?.[0]?.content || "";
+}
+
+function analyzeDraftContent(content) {
+  return {
+    imgCount: (content.match(/<img/g) || []).length,
+    cdnCount: (content.match(/mmbiz\.qpic\.cn/g) || []).length,
+    h2Count: (content.match(/<h2/g) || []).length,
+    cardCount: (content.match(/border-radius:22px/g) || []).length,
+    darkCardCount: (content.match(/background:#3a3333/g) || []).length,
+    lightCardCount: (content.match(/background:#fff8f1/g) || []).length,
+    quoteCount: (content.match(/padding:14px 16px;border-left:3px/g) || []).length,
+    styleCount: (content.match(/style="/g) || []).length,
+    positionCount: (content.match(/position:[^\;"]+/g) || []).length,
+    filterCount: (content.match(/filter:[^\;"]+/g) || []).length,
+  };
+}
+
+function getAssetList(htmlPath) {
+  if (!htmlPath || !fs.existsSync(htmlPath)) return [];
+  const html = fs.readFileSync(htmlPath, "utf8");
+  const assets = [];
+  const seen = new Set();
+  const imgMatches = html.matchAll(/src="([^"]+)"/g);
+  for (const match of imgMatches) {
+    const src = match[1];
+    if (!src.startsWith("http") && !src.startsWith("data:")) {
+      const absPath = path.isAbsolute(src) ? src : path.resolve(path.dirname(htmlPath), src);
+      if (fs.existsSync(absPath) && !seen.has(absPath)) {
+        seen.add(absPath);
+        const stats = fs.statSync(absPath);
+        assets.push({ name: path.basename(absPath), path: absPath, size: stats.size });
+      }
+    }
+  }
+  return assets;
+}
+
+function formatAuditLog(audit) {
+  const lines = [
+    "",
+    "━━━ md2wechat Audit Log ━━━",
+    `时间: ${audit.timestamp}`,
+    "",
+    "【源文件】",
+    `MD: ${audit.source.mdPath || "(none)"}`,
+    `HTML: ${audit.source.htmlPath}`,
+    `标题: ${audit.source.title}`,
+    `作者: ${audit.source.author}`,
+    `账号: ${audit.source.account}`,
+  ];
+
+  if (audit.assets.length > 0) {
+    lines.push("");
+    lines.push("【资源清单】");
+    for (const asset of audit.assets) {
+      const sizeKB = (asset.size / 1024).toFixed(1);
+      lines.push(`  ${asset.name} (${sizeKB}KB)`);
+    }
+  }
+
+  lines.push("");
+  lines.push("【推送结果】");
+  lines.push(`  状态: ${audit.push.status}`);
+  lines.push(`  media_id: ${audit.push.mediaId}`);
+  lines.push(`  thumb_media_id: ${audit.push.thumbMediaId}`);
+
+  lines.push("");
+  lines.push("【微信回检】");
+  lines.push(`  img标签: ${audit.verify.imgCount}`);
+  lines.push(`  CDN图片: ${audit.verify.cdnCount}`);
+  lines.push(`  h2标题: ${audit.verify.h2Count}`);
+  lines.push(`  卡片: ${audit.verify.cardCount} (深${audit.verify.darkCardCount} / 浅${audit.verify.lightCardCount})`);
+  lines.push(`  引用块: ${audit.verify.quoteCount}`);
+  lines.push(`  style属性: ${audit.verify.styleCount}`);
+  lines.push(`  position: ${audit.verify.positionCount} ${audit.verify.positionCount === 0 ? "✅" : "❌"}`);
+  lines.push(`  filter: ${audit.verify.filterCount} ${audit.verify.filterCount === 0 ? "✅" : "❌"}`);
+
+  lines.push("");
+  lines.push("━━━━━━━━━━━━━━━━━━━━━━━━━");
+  return lines.join("\n");
+}
+
 function guessMimeType(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === ".png") {
@@ -1309,6 +1400,34 @@ export async function createWechatDraft(argv = process.argv.slice(2)) {
       2,
     ),
   );
+
+  // ── 输出 Audit Log（推送后自动回检） ──
+  try {
+    const content = fetchDraftContent(accessToken, result.media_id);
+    const verify = analyzeDraftContent(content);
+    const assets = getAssetList(plan.htmlPath);
+    const audit = {
+      timestamp: new Date().toISOString(),
+      source: {
+        mdPath: plan.sourceMdPath,
+        htmlPath: plan.htmlPath,
+        title: plan.payload.articles[0].title,
+        author: plan.payload.articles[0].author,
+        account: credentials.account,
+      },
+      assets,
+      push: {
+        status: result.errmsg || "ok",
+        mediaId: result.media_id,
+        thumbMediaId: plan.payload.articles[0].thumb_media_id,
+      },
+      verify,
+    };
+    console.log(formatAuditLog(audit));
+  } catch (auditErr) {
+    console.warn("⚠️  Audit log 生成失败:", auditErr.message);
+  }
+
   return 0;
 }
 
