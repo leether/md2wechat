@@ -1,5 +1,9 @@
 # md2wechat
 
+[![GitHub release](https://img.shields.io/github/v/release/leether/md2wechat)](https://github.com/leether/md2wechat/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/leether/md2wechat/blob/main/LICENSE)
+[![Node.js >=18](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
+
 > *每次渲染完贴到微信后台，排版不是崩了就是样式被吃了一半。后来自己写了个渲染器，终于不用再猜微信会过滤什么了。*
 
 从 Markdown 文件出发，改写 → 排版 → 发布三位一体。渲染器只输出微信白名单合规的 HTML，**三重 lint**（写作质量 / GEO 合规 / 微信 HTML）确保不翻车，一条命令推到草稿箱。
