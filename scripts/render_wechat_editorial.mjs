@@ -1197,7 +1197,7 @@ function formatLintReport(result) {
 
 // ── GEO 合规检查（Generative Engine Optimization） ──
 
-function lintGeoCompliance(markdown) {
+function lintGeoCompliance(markdown, title = "") {
   const l1 = [];
   const l2 = [];
 
@@ -1219,6 +1219,24 @@ function lintGeoCompliance(markdown) {
     const hasConclusion = /是|为|等于|在于|核心|关键|本质|最|第一|首先/.test(summary);
     if (!hasData && !hasList && !hasConclusion) {
       l2.push("摘要过于概括，缺少可被 AI 引用的具体结论或数据（建议加入数字、步骤或判断词）");
+    }
+  }
+
+  // L1: 标题检查
+  if (!title || title.trim().length === 0) {
+    l1.push("缺少文章标题，请使用 --title <text> 指定，或在文件名中体现");
+  } else {
+    const t = title.trim();
+    if (t.length > 30) {
+      l1.push(`标题过长（${t.length}字），微信标题限制 30 字，建议精简`);
+    }
+    // L2: 标题过短或疑似纯文件名
+    if (t.length < 8) {
+      l2.push(`标题过短（${t.length}字），建议包含核心搜索词以提升 AI 发现概率`);
+    }
+    // 检查是否像无意义的文件名（全小写、无中文）
+    if (/^[a-z0-9\s]+$/.test(t)) {
+      l2.push("标题疑似从文件名推断，缺少中文搜索词，建议用 --title 指定语义明确的标题");
     }
   }
 
@@ -1353,6 +1371,7 @@ function main(argv = process.argv.slice(2)) {
       "Options:",
       "  --input <path>         Source markdown file",
       "  --output <path>        Output HTML file",
+      "  --title <text>         Article title for GEO lint (overrides filename inference)",
       "  --kicker <text>        Small centered line above the opening section",
       "  --footer-note <text>   Small centered footer note",
       "  --footer-cta <text>    Small centered CTA line",
@@ -1380,6 +1399,11 @@ function main(argv = process.argv.slice(2)) {
 
   const outputPath = normalizeOutputPath(inputPath, args.output);
   const markdown = fs.readFileSync(absoluteInput, "utf8");
+
+  // 推断标题：命令行 > 文件名
+  const inferredTitle = args.title
+    ? String(args.title)
+    : path.basename(absoluteInput, path.extname(absoluteInput)).replace(/[-_]/g, " ");
 
   // ── 读取 .env 中的 footer 配置（命令行参数优先） ──
   const envPath = args.env
@@ -1426,7 +1450,7 @@ function main(argv = process.argv.slice(2)) {
 
   // ── GEO 合规检查（生成式引擎优化） ──
   if (!args["no-geo-lint"]) {
-    const geoResult = lintGeoCompliance(markdown);
+    const geoResult = lintGeoCompliance(markdown, inferredTitle);
     console.log(formatGeoReport(geoResult));
     if (geoResult.l1.length > 0 || (args["strict-geo"] && geoResult.l2.length > 0)) {
       const level = args["strict-geo"] ? "L1/L2" : "L1";
