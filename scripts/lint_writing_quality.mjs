@@ -114,7 +114,22 @@ function scanBannedWords(text, rules) {
 
 function scanBannedPunctuation(text, rules) {
   const hits = [];
-  for (const rule of rules.l1_banned_punctuation) {
+  const punctuationRules = rules.l1_banned_punctuation || [];
+  for (const rule of punctuationRules) {
+    const regex = new RegExp(rule.char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const line = text.slice(0, match.index).split("\n").length;
+      hits.push({ char: rule.char, reason: rule.reason, replacement: rule.replacement, line });
+    }
+  }
+  return hits;
+}
+
+function scanL2Punctuation(text, rules) {
+  const hits = [];
+  const punctuationRules = rules.l2_banned_punctuation || [];
+  for (const rule of punctuationRules) {
     const regex = new RegExp(rule.char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
     let match;
     while ((match = regex.exec(text)) !== null) {
@@ -327,6 +342,7 @@ export function lintWritingQuality(markdown, rulesPath, options = {}) {
     l1.longParagraphs.length;
 
   // L2 扫描
+  const l2Punctuation = scanL2Punctuation(prose, rules);
   const l2 = {
     opening: scanOpening(lines, rules),
     colloquial: scanColloquialUsage(prose, rules),
@@ -334,12 +350,14 @@ export function lintWritingQuality(markdown, rulesPath, options = {}) {
     shortBreaks: scanShortSentenceBreaks(prose, rules),
     emotionPunctuation: scanEmotionPunctuation(prose, rules),
     overFormatting: scanOverFormatting(prose, rules),
+    punctuation: l2Punctuation,
   };
 
   const l2Warnings = [
     ...l2.opening,
     ...l2.sentenceRhythm,
     ...l2.overFormatting,
+    ...l2Punctuation.map((h) => ({ type: "建议替代标点", detail: `第${h.line}行: ${h.reason}` })),
     ...(l2.colloquial.passed ? [] : [{ type: "口语化表达不足", detail: `仅使用 ${l2.colloquial.count}/${l2.colloquial.minimum} 个口语化词组` }]),
     ...(l2.shortBreaks.passed ? [] : [{ type: "句式断裂不足", detail: `仅 ${l2.shortBreaks.count}/${l2.shortBreaks.minimum} 处极短句独立成段` }]),
     ...(l2.emotionPunctuation.passed ? [] : [{ type: "情绪标点缺失", detail: "未使用。。。/？？？/= = 等情绪标点" }]),

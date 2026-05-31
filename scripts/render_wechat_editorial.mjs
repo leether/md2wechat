@@ -1106,19 +1106,21 @@ function lintWechatHtml(html) {
   const errors = [];
   const warnings = [];
 
-  // ── 致命错误（会被微信直接删除） ──
-  const fatalRules = [
-    { pattern: /position\s*:\s*(absolute|fixed|sticky)/gi, desc: "position:absolute/fixed/sticky 会被微信删除" },
-    { pattern: /<style[\s>]/gi, desc: "<style> 标签会被微信删除，只能用内联 style" },
-    { pattern: /<script[\s>]/gi, desc: "<script> 标签会被微信删除" },
-    { pattern: /\bon\w+\s*=/gi, desc: "事件属性（onclick 等）会被微信剥除" },
-    { pattern: /<iframe[\s>]/gi, desc: "<iframe> 会被微信删除（仅腾讯视频源例外）" },
-    { pattern: /<form[\s>]/gi, desc: "<form> 会被微信删除" },
-    { pattern: /<input[\s>]/gi, desc: "<input> 会被微信删除" },
-  ];
+  // ── 提取所有 style="..." 属性值，只对这些值做 CSS 属性检查 ──
+  // 避免误报正文文字中出现的 CSS 属性名（如 "被 position: absolute 背刺"）
+  const styleValues = [];
+  const styleRegex = /style="([^"]*)"/gi;
+  let styleMatch;
+  while ((styleMatch = styleRegex.exec(html)) !== null) {
+    styleValues.push(styleMatch[1]);
+  }
+  const allStyleValues = styleValues.join("\n");
 
-  // ── 高风险警告（兼容性不稳定或被过滤） ──
-  const warnRules = [
+  // ── 致命错误（会被微信直接删除） ──
+
+  // CSS 属性类规则：只在 style 属性值中检查
+  const fatalStyleRules = [
+    { pattern: /position\s*:\s*(absolute|fixed|sticky)/gi, desc: "position:absolute/fixed/sticky 会被微信删除" },
     { pattern: /position\s*:\s*relative/gi, desc: "position:relative 可能被微信删除" },
     { pattern: /filter\s*:/gi, desc: "filter 属性兼容性不稳定，可能被删除" },
     { pattern: /linear-gradient|radial-gradient/gi, desc: "渐变背景兼容性不确定，Dark Mode 下会被转纯色" },
@@ -1126,23 +1128,47 @@ function lintWechatHtml(html) {
     { pattern: /!important/gi, desc: "!important 会干扰微信 Dark Mode 算法" },
     { pattern: /font-family/gi, desc: "自定义 font-family 不推荐，iOS 17+ 有字间距差异" },
     { pattern: /transform\s*:/gi, desc: "transform 兼容性不稳定，transform-origin 在 iOS 无效" },
-    { pattern: /\bid\s*=/gi, desc: "id 属性会被微信删除" },
     { pattern: /animation\s*:/gi, desc: "CSS animation 在微信中支持有限" },
     { pattern: /transition\s*:/gi, desc: "CSS transition 在微信中支持有限" },
     { pattern: /calc\s*\(/gi, desc: "calc() 在微信中不稳定" },
   ];
 
-  for (const rule of fatalRules) {
-    const matches = html.match(rule.pattern);
+  // 标签/属性类规则：在整个 HTML 中检查（不会误报正文文字）
+  const fatalTagRules = [
+    { pattern: /<style[\s>]/gi, desc: "<style> 标签会被微信删除，只能用内联 style" },
+    { pattern: /<script[\s>]/gi, desc: "<script> 标签会被微信删除" },
+    { pattern: /\bon\w+\s*=/gi, desc: "事件属性（onclick 等）会被微信剥除" },
+    { pattern: /<iframe[\s>]/gi, desc: "<iframe> 会被微信删除（仅腾讯视频源例外）" },
+    { pattern: /<form[\s>]/gi, desc: "<form> 会被微信删除" },
+    { pattern: /<input[\s>]/gi, desc: "<input> 会被微信删除" },
+    { pattern: /\bid\s*=/gi, desc: "id 属性会被微信删除" },
+  ];
+
+  // 对 style 属性值做 CSS 规则检查
+  for (const rule of fatalStyleRules) {
+    rule.pattern.lastIndex = 0;
+    const matches = allStyleValues.match(rule.pattern);
     if (matches) {
-      errors.push({ rule: rule.desc, count: matches.length });
+      // position:relative 降级为警告而非致命错误
+      if (/position\s*:\s*relative/i.test(matches[0])) {
+        warnings.push({ rule: rule.desc, count: matches.length });
+      } else {
+        errors.push({ rule: rule.desc, count: matches.length });
+      }
     }
   }
 
-  for (const rule of warnRules) {
+  // 对整个 HTML 做标签/属性检查
+  for (const rule of fatalTagRules) {
+    rule.pattern.lastIndex = 0;
     const matches = html.match(rule.pattern);
     if (matches) {
-      warnings.push({ rule: rule.desc, count: matches.length });
+      // id= 和 事件属性 不在 style 里，降级为警告（实际影响较小）
+      if (/\bid\s*=/.test(rule.pattern.source) || /\bon\w+\s*=/.test(rule.pattern.source)) {
+        warnings.push({ rule: rule.desc, count: matches.length });
+      } else {
+        errors.push({ rule: rule.desc, count: matches.length });
+      }
     }
   }
 

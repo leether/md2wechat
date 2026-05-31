@@ -105,7 +105,18 @@ tone: light
 - **必须关闭**：每个 `:::wechat-card` 必须有对应的 `:::`，否则整个块解析失败
 - **⚠️ 卡片内部不支持表格**：`:::wechat-card` 里的 `|...|` 表格语法不会被解析，会被当成普通文本。表格必须放在卡片外部，由顶层 `parseMarkdown` 正确渲染
 
-#### 正文插图
+#### 正文插图（两种语法）
+
+**方式一：标准 Markdown 图片语法**（简洁，推荐无 caption 时使用）
+
+```markdown
+![图片描述](/path/to/image.png)
+```
+
+→ 渲染为居中圆角图片，本地路径图片会被自动上传微信 CDN
+
+**方式二：`:::wechat-image` 指令语法**（支持 caption 说明文字）
+
 ```markdown
 :::wechat-image
 src: /path/to/image.png
@@ -113,7 +124,10 @@ alt: 图片描述
 caption: 图片说明
 :::
 ```
+
 → 渲染为居中图片 + 下方说明文字，图片会被自动上传微信 CDN
+
+> 两种语法效果相同，`:::wechat-image` 多一个 caption 功能。按需选择。
 
 #### 引用块
 ```markdown
@@ -152,7 +166,9 @@ npm install @cnbcool/cnb-cli
 ```bash
 ${NODE_PATH} ${PIPELINE_HOME}/scripts/render_wechat_editorial.mjs \
   --input <markdown文件> \
-  --output <输出html路径>
+  --output <输出html路径> \
+  --env ${PIPELINE_HOME}/.env
+# ⚠️ --env 必须显式指定，否则 footer（二维码+CTA）不会注入
 # footer 参数会自动从 .env 读取（FOOTER_QR_PATH / FOOTER_CTA / FOOTER_QR_TITLE / FOOTER_QR_HINT）
 # 如需覆盖 .env 配置，可用命令行参数：
 #   --footer-qr /path/to/qr.png --footer-cta "文案" --footer-qr-title "标题" --footer-qr-hint "提示"
@@ -181,8 +197,8 @@ ${NODE_PATH} ${PIPELINE_HOME}/scripts/render_wechat_editorial.mjs \
 
 渲染前自动扫描 Markdown 写作质量（基于 khazix-writer 四层质控体系）：
 
-- **L1 硬性规则**（违规阻止渲染）：禁用词、禁用标点、结构套话、空泛工具名、超长段落
-- **L2 风格一致性**（违规输出警告）：宏大叙事开头、口语化不足、句长节奏单一、情绪标点缺失、过度加粗
+- **L1 硬性规则**（违规阻止渲染）：禁用词、禁用标点（破折号 `——`、中文双引号 `""`）、结构套话、空泛工具名、超长段落
+- **L2 风格一致性**（违规输出警告）：宏大叙事开头、口语化不足、句长节奏单一、情绪标点缺失、过度加粗、建议替代标点（中文冒号 `：` 建议用逗号，但"标题：内容"短标题结构可保留）
 
 ```bash
 # 跳过写作质检（不推荐）
@@ -281,12 +297,29 @@ cp ${PIPELINE_HOME}/scripts/create_wechat_draft.mjs $BUNDLE/
 cp -r ${PIPELINE_HOME}/scripts/lib $BUNDLE/lib
 cp ${PIPELINE_HOME}/.env $BUNDLE/
 cp <封面图> $BUNDLE/cover.png
-# 复制 HTML 中引用的本地图片（如二维码，仅当 .env 中配了 FOOTER_QR_PATH 时）
-if [ -f "${PIPELINE_HOME}/assets/qr.png" ]; then
-  cp ${PIPELINE_HOME}/assets/qr.png $BUNDLE/qr.png
-fi
 
-# 2. 上传到跳板机
+# 2. 自动提取 HTML 中引用的本地图片（正文插图 + 二维码）
+# 从 article.html 中提取所有 src="..." 指向本地路径的图片，复制到 bundle 并替换路径
+${NODE_PATH} -e "
+const fs = require('fs');
+const path = require('path');
+const html = fs.readFileSync('$BUNDLE/article.html', 'utf8');
+const localSrcs = [...html.matchAll(/src=\"((?:\\/tmp\\/|\\/Users\\/|\\/home\\/)[^\"]+)\"/g)].map(m => m[1]);
+const seen = new Set();
+for (const src of localSrcs) {
+  if (seen.has(src)) continue;
+  seen.add(src);
+  if (fs.existsSync(src)) {
+    const basename = path.basename(src);
+    fs.copyFileSync(src, path.join('$BUNDLE', basename));
+    console.log('Copied:', src, '->', basename);
+  } else {
+    console.warn('Missing:', src);
+  }
+}
+"
+
+# 3. 上传到跳板机
 RELAY_HOST=<你的跳板机host>
 ssh $RELAY_HOST "rm -rf /tmp/wechat-draft-bundle && mkdir -p /tmp/wechat-draft-bundle"
 scp -r $BUNDLE/* $RELAY_HOST:/tmp/wechat-draft-bundle/
@@ -294,10 +327,10 @@ scp -r $BUNDLE/lib $RELAY_HOST:/tmp/wechat-draft-bundle/
 # ⚠️ .env 是隐藏文件，* 通配符匹配不到，必须单独 scp
 scp $BUNDLE/.env $RELAY_HOST:/tmp/wechat-draft-bundle/
 
-# 3. 替换 HTML 中的本地图片路径为相对路径
-ssh $RELAY_HOST "sed -i 's|src=\"${PIPELINE_HOME}/assets/|src=\"|g' /tmp/wechat-draft-bundle/article.html"
+# 4. 替换 HTML 中的本地绝对路径为文件名（通用 sed，适配所有本地路径）
+ssh $RELAY_HOST "sed -i -E 's|src=\"((?:/tmp/|/Users/|/home/)[^\"]*/([^\"/]+))\"|src=\"\\2\"|g' /tmp/wechat-draft-bundle/article.html"
 
-# 4. 在跳板机上推送
+# 5. 在跳板机上推送
 ssh $RELAY_HOST "cd /tmp/wechat-draft-bundle && node create_wechat_draft.mjs \
   --html article.html \
   --thumb-image cover.png \
@@ -337,6 +370,8 @@ const tokenResp = JSON.parse(execFileSync(\"curl\",[\"-L\",\"-sS\",\"https://api
 const token = tokenResp.access_token;
 const draftResp = JSON.parse(execFileSync(\"curl\",[\"-L\",\"-sS\",\"https://api.weixin.qq.com/cgi-bin/draft/get?access_token=\"+token,\"-H\",\"Content-Type: application/json\",\"-d\",JSON.stringify({media_id:\"<返回的media_id>\"})],{encoding:\"utf8\"}));
 const content = draftResp.news_item[0].content;
+console.log(\"img标签:\", (content.match(/<img/g)||[]).length);
+console.log(\"微信CDN图片:\", (content.match(/mmbiz\\.qpic\\.cn/g)||[]).length);
 console.log(\"style=属性:\", (content.match(/style=\\\"/g)||[]).length);
 console.log(\"H2标签:\", (content.match(/<h2/g)||[]).length);
 console.log(\"卡片数:\", (content.match(/border-radius:22px/g)||[]).length);
@@ -346,9 +381,6 @@ console.log(\"橙色H2:\", (content.match(/background:#d0784a/g)||[]).length);
 console.log(\"表格数:\", (content.match(/<table/g)||[]).length);
 console.log(\"代码块:\", (content.match(/background:#1b1e23/g)||[]).length);
 console.log(\"引用块:\", (content.match(/padding:14px 16px;border-left:3px/g)||[]).length);
-console.log(\"微信CDN图片:\", (content.match(/mmbiz\\.qpic\\.cn/g)||[]).length);
-console.log(\"position属性:\", (content.match(/position:/g)||[]).length);
-console.log(\"filter属性:\", (content.match(/filter:/g)||[]).length);
 "'
 ```
 
@@ -356,6 +388,8 @@ console.log(\"filter属性:\", (content.match(/filter:/g)||[]).length);
 
 | 检查项 | 期望值 | 含义 |
 |--------|--------|------|
+| `<img` | ≥ 1（封面+插图+二维码） | 所有图片已渲染 |
+| `mmbiz.qpic.cn` | 与 `<img` 数量一致 | 图片全部上传微信 CDN |
 | `style=` 属性 | > 50 | 内联样式完整保留 |
 | `<h2` | > 0 | H2 章节块存在 |
 | `border-radius:22px` | 与 MD 中卡片数一致 | 卡片全部渲染 |
@@ -364,9 +398,6 @@ console.log(\"filter属性:\", (content.match(/filter:/g)||[]).length);
 | `<table` | 与 MD 中表格数一致 | 表格正确渲染（卡片内表格=0 表示被静默忽略） |
 | `background:#1b1e23` | 与 MD 中代码块数一致 | 围栏代码块正确渲染 |
 | `padding:14px 16px;border-left:3px` | 与 MD 中引用块数一致 | 引用块合并渲染正确 |
-| `mmbiz.qpic.cn` | ≥ 1 | 图片已上传微信 CDN |
-| `position:` | = 0 | 微信合规 |
-| `filter:` | = 0 | 微信合规 |
 
 **如果卡片数为 0 但 MD 中有 `:::wechat-card`：指令语法有问题，回到 Step 0 修复 MD 后重新走 Step 1-4。**
 
@@ -412,18 +443,20 @@ console.log(\"filter属性:\", (content.match(/filter:/g)||[]).length);
 3. **图片必须走微信 CDN**：HTML 中的本地图片路径会被脚本自动上传并替换为 mmbiz.qpic.cn URL
 4. **跳板机上需替换本地路径**：HTML 中的本地绝对路径在跳板机上不存在，需 sed 替换为相对路径
 5. **AI 图像工具沙箱权限 → 必须向用户申请授权**：不要自作主张跳过或用旧封面凑合。封面是门面，用错比没有还糟
-17. **封面图自动 fallback**：推送脚本 `--thumb-image` 现在是可选参数。未提供时自动生成 900x383 纯色占位 PNG（`#1a1a2e`），保证草稿箱可用。建议在微信后台替换为正式封面
-6. **:::wechat-card 语法必须正确**：
+6. **封面图自动 fallback**：推送脚本 `--thumb-image` 现在是可选参数。未提供时自动生成 900x383 纯色占位 PNG（`#1a1a2e`），保证草稿箱可用。建议在微信后台替换为正式封面
+7. **:::wechat-card 语法必须正确**：
    - 推荐：`:::wechat-card` + `title:` + `tone:` 键值对（有独立标题样式）
    - 简写：`:::wechat-card dark` / `:::wechat-card light`（tone 映射正确，无独立标题行）
    - 渲染引擎有 `lintMarkdownDirectives()` 源码校验，会报告指令格式问题
-7. **双重 lint 覆盖**：`lintMarkdownDirectives()` 检查源码指令 + `lintWechatHtml()` 检查输出 HTML。两者互补，缺一不可
-8. **回检必须看卡片数**：不只看 style 属性数，还要确认 `border-radius:22px` 数量与 MD 中卡片数一致。卡片被静默忽略时 style 数看起来也正常
-9. **封面图必须压缩**：AI 生成的封面图常超 2MB，微信 API 限制会报 45001。用 `sips -Z 2000`（macOS）或 `convert -resize`（Linux）压缩后再推送
-10. **SCP .env 需单独处理**：`.env` 是隐藏文件，`scp *` 匹配不到，必须 `scp .env` 单独传
-11. **卡片内部不支持表格**：`:::wechat-card` 里的 `|...|` 表格语法不会被解析，会被当成普通文本。表格必须放在卡片外部
-12. **摘要元数据 `summary:`**：MD 第一行写 `summary: xxx`，脚本会自动提取为文章 digest。不加的话 digest 默认取正文前 54 字，可能包含 Markdown 反引号等标记
-13. **CTA 护栏：检测到 CTA 信号但未配置 footer 时降级警告**：如果 Markdown 中包含 `## 总结/最后/结语` 或正文有"扫码/二维码/交流群"等 CTA 信号，但 `.env` 和命令行均未提供 footer 配置，脚本会输出警告（而非阻止渲染）。配置了 `.env` 的 `FOOTER_QR_PATH` 则自动附加 footer，用 `--no-footer` 显式跳过
-14. **IP 护栏：推送脚本会拦截非白名单环境的本地推送**：在 `.env` 中配置 `WECHAT_PUBLISH_ALLOWED_HOSTS` 或 `WECHAT_PUBLISH_ALLOWED_IPS` 后，`create_wechat_draft.mjs` 会自动拒绝非白名单环境的推送请求，防止"本地直接跑 → ip_not_in_whitelist"的重复踩坑。临时本地调试可设 `WECHAT_PUBLISH_FORCE_LOCAL=1`
-15. **写作质量质检（khazix-writer 规则）**：渲染前会自动扫描 Markdown 的写作质量。L1（禁用词/标点/结构套话）违规阻止渲染，L2（风格一致性）输出警告。跳过用 `--no-writing-lint`，自定义规则用 `--writing-rules <path>`，L2 也视为错误用 `--strict-writing`。规则文件位于 `references/khazix-writer/rules.json`
-16. **khazix-writer 人格覆盖**：khazix-writer 以「数字生命卡兹克」身份写作，尾部固定带卡兹克署名和邮箱。调用后必须覆盖人格和署名，只保留写作方法论。详见 Step 0「人格覆盖」
+8. **双重 lint 覆盖**：`lintMarkdownDirectives()` 检查源码指令 + `lintWechatHtml()` 检查输出 HTML。两者互补，缺一不可
+9. **回检必须看卡片数**：不只看 style 属性数，还要确认 `border-radius:22px` 数量与 MD 中卡片数一致。卡片被静默忽略时 style 数看起来也正常
+10. **封面图必须压缩**：AI 生成的封面图常超 2MB，微信 API 限制会报 45001。用 `sips -Z 2000`（macOS）或 `convert -resize`（Linux）压缩后再推送
+11. **SCP .env 需单独处理**：`.env` 是隐藏文件，`scp *` 匹配不到，必须 `scp .env` 单独传
+12. **卡片内部不支持表格**：`:::wechat-card` 里的 `|...|` 表格语法不会被解析，会被当成普通文本。表格必须放在卡片外部
+13. **摘要元数据 `summary:`**：MD 第一行写 `summary: xxx`，脚本会自动提取为文章 digest。不加的话 digest 默认取正文前 54 字，可能包含 Markdown 反引号等标记
+14. **CTA 护栏：检测到 CTA 信号但未配置 footer 时降级警告**：如果 Markdown 中包含 `## 总结/最后/结语` 或正文有"扫码/二维码/交流群"等 CTA 信号，但 `.env` 和命令行均未提供 footer 配置，脚本会输出警告（而非阻止渲染）。配置了 `.env` 的 `FOOTER_QR_PATH` 则自动附加 footer，用 `--no-footer` 显式跳过
+15. **IP 护栏：推送脚本会拦截非白名单环境的本地推送**：在 `.env` 中配置 `WECHAT_PUBLISH_ALLOWED_HOSTS` 或 `WECHAT_PUBLISH_ALLOWED_IPS` 后，`create_wechat_draft.mjs` 会自动拒绝非白名单环境的推送请求，防止"本地直接跑 → ip_not_in_whitelist"的重复踩坑。临时本地调试可设 `WECHAT_PUBLISH_FORCE_LOCAL=1`
+16. **写作质量质检（khazix-writer 规则）**：渲染前会自动扫描 Markdown 的写作质量。L1（禁用词/破折号/双引号/结构套话）违规阻止渲染，L2（风格一致性+中文冒号建议）输出警告。跳过用 `--no-writing-lint`，自定义规则用 `--writing-rules <path>`，L2 也视为错误用 `--strict-writing`。规则文件位于 `references/khazix-writer/rules.json`
+17. **khazix-writer 人格覆盖**：khazix-writer 以「数字生命卡兹克」身份写作，尾部固定带卡兹克署名和邮箱。调用后必须覆盖人格和署名，只保留写作方法论。详见 Step 0「人格覆盖」
+18. **渲染时必须用 --env 指定 .env 路径**：不传 `--env` 时，渲染器可能读不到 `.env`，导致 footer（二维码+CTA）静默缺失。命令示例已包含 `--env ${PIPELINE_HOME}/.env`，请勿省略
+19. **Markdown 图片语法 `![alt](url)` 已支持**：渲染器支持标准 Markdown 图片语法，也可用 `:::wechat-image` 指令（多 caption 功能）。两种语法按需选择

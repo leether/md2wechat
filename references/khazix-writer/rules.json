@@ -33,10 +33,13 @@
   },
 
   "l1_banned_punctuation": [
-    { "char": "：", "reason": "冒号 → 用逗号替代", "replacement": "，" },
     { "char": "——", "reason": "破折号 → 用逗号或句号替代", "replacement": "，" },
     { "char": "\u201c", "reason": "左双引号 → 用「」或不加引号", "replacement": "「" },
     { "char": "\u201d", "reason": "右双引号 → 用「」或不加引号", "replacement": "」" }
+  ],
+
+  "l2_banned_punctuation": [
+    { "char": "：", "reason": "中文冒号 → 建议用逗号替代（但在「标题：内容」短标题结构中可保留）", "replacement": "，" }
   ],
 
   "l1_banned_structures": [
