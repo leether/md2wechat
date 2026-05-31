@@ -1195,6 +1195,104 @@ function formatLintReport(result) {
   return lines.join("\n");
 }
 
+// ── GEO 合规检查（Generative Engine Optimization） ──
+
+function lintGeoCompliance(markdown) {
+  const l1 = [];
+  const l2 = [];
+
+  // L1: 摘要缺失
+  const summaryMatch = markdown.match(/^summary:\s*(.+)/m);
+  if (!summaryMatch) {
+    l1.push("MD 第一行缺少 summary: xxx，AI 搜索无法提取文章摘要");
+  } else {
+    const summary = summaryMatch[1].trim();
+
+    // L2: 摘要过短
+    if (summary.length < 20) {
+      l2.push(`摘要过短（${summary.length}字），建议加入具体结论或数据`);
+    }
+
+    // L2: 摘要无数据（缺少数字、列表标记或判断词）
+    const hasData = /\d/.test(summary);
+    const hasList = /[①②③④⑤⑥⑦⑧⑨⑩]|\d+\./.test(summary);
+    const hasConclusion = /是|为|等于|在于|核心|关键|本质|最|第一|首先/.test(summary);
+    if (!hasData && !hasList && !hasConclusion) {
+      l2.push("摘要过于概括，缺少可被 AI 引用的具体结论或数据（建议加入数字、步骤或判断词）");
+    }
+  }
+
+  // L1: 零结构化
+  const hasListStructure = /(^|\n)\s*[-*]\s+/.test(markdown) || /:::wechat-card/.test(markdown);
+  if (!hasListStructure) {
+    l1.push("正文中缺少列表结构（卡片列表或 - 列表），AI 无法结构化提取内容");
+  }
+
+  // L2: H2 过于模糊
+  const h2Titles = [...markdown.matchAll(/^##\s+(.+)$/gm)].map(m => m[1].trim());
+  const vagueWords = ["感悟", "随笔", "碎碎念", "杂谈", "心情", "随想", "漫谈", "有感", "杂感"];
+  for (const title of h2Titles) {
+    const isVague = vagueWords.some(w => title.includes(w));
+    if (isVague) {
+      l2.push(`H2 标题"${title}"过于模糊，建议包含具体主题或搜索词`);
+    }
+  }
+
+  // L2: 零引用块
+  const hasBlockquote = /(^|\n)\s*>/.test(markdown);
+  if (!hasBlockquote) {
+    l2.push("缺少引用块（>），建议至少添加一个可被 AI 引用的核心观点");
+  }
+
+  // L2: 零卡片
+  const hasCards = /:::wechat-card/.test(markdown);
+  if (!hasCards) {
+    l2.push("缺少卡片结构（:::wechat-card），建议用卡片呈现核心论点");
+  }
+
+  return { l1, l2 };
+}
+
+function formatGeoReport(result) {
+  const lines = ["━━━ GEO 合规检查报告 ━━━", ""];
+
+  if (result.l1.length === 0) {
+    lines.push("L1 硬性规则 ✅");
+    lines.push("  全部通过 ✅");
+  } else {
+    lines.push("L1 硬性规则 ❌");
+    for (const item of result.l1) {
+      lines.push(`  ❌ ${item}`);
+    }
+  }
+
+  lines.push("");
+
+  if (result.l2.length === 0) {
+    lines.push("L2 GEO 建议 ✅");
+    lines.push("  全部通过 ✅");
+  } else {
+    lines.push("L2 GEO 建议 ⚠️");
+    for (const item of result.l2) {
+      lines.push(`  ⚠️ ${item}`);
+    }
+  }
+
+  lines.push("");
+
+  const passed = result.l1.length === 0;
+  const hasL2 = result.l2.length > 0;
+  if (passed && !hasL2) {
+    lines.push("总评: ✅ 通过");
+  } else if (passed && hasL2) {
+    lines.push(`总评: ⚠️ 通过（${result.l2.length} 个 L2 警告）`);
+  } else {
+    lines.push(`总评: ❌ 未通过（${result.l1.length} 处硬性违规）`);
+  }
+
+  return lines.join("\n");
+}
+
 export function renderWechatEditorial(markdown, options = {}) {
   const { blocks, summary } = parseMarkdown(markdown);
   const bodyContent = renderBody(blocks, {
@@ -1267,6 +1365,8 @@ function main(argv = process.argv.slice(2)) {
       "  --no-writing-lint      Skip writing quality lint (L1 banned words/punctuation)",
       "  --writing-rules <path> Custom rules.json path (default: references/khazix-writer/rules.json)",
       "  --strict-writing       Treat L2 warnings as errors",
+      "  --no-geo-lint          Skip GEO compliance lint (summary/structure/AI-readability)",
+      "  --strict-geo           Treat GEO L2 warnings as errors",
       "  --help                 Show help",
     ]);
     return 0;
@@ -1320,6 +1420,20 @@ function main(argv = process.argv.slice(2)) {
         `❌ 渲染被拦截：写作质量 L1 检查未通过（${writingResult.l1.totalHits}处硬性违规）。\n` +
         `   请修复上方报告中的 L1 问题后重新渲染。\n` +
         `   如需跳过写作质检，使用 --no-writing-lint 参数。`,
+      );
+    }
+  }
+
+  // ── GEO 合规检查（生成式引擎优化） ──
+  if (!args["no-geo-lint"]) {
+    const geoResult = lintGeoCompliance(markdown);
+    console.log(formatGeoReport(geoResult));
+    if (geoResult.l1.length > 0 || (args["strict-geo"] && geoResult.l2.length > 0)) {
+      const level = args["strict-geo"] ? "L1/L2" : "L1";
+      throw new Error(
+        `❌ 渲染被拦截：GEO 合规 ${level} 检查未通过。\n` +
+        `   请修复上方报告中的问题后重新渲染。\n` +
+        `   如需跳过 GEO 检查，使用 --no-geo-lint 参数。`,
       );
     }
   }
