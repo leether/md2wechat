@@ -485,6 +485,18 @@ function parseMarkdown(markdown) {
       continue;
     }
 
+    // Markdown image: ![alt](url)
+    const imageMatch = line.match(/^!\[([^\]]*)\]\(([^)]+)\)\s*$/);
+    if (imageMatch) {
+      blocks.push({
+        type: "image",
+        alt: imageMatch[1],
+        src: imageMatch[2],
+      });
+      index += 1;
+      continue;
+    }
+
     if (isUnorderedList(line)) {
       const result = collectList(lines, index, false);
       blocks.push(result.block);
