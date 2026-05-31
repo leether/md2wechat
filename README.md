@@ -4,6 +4,16 @@
 
 从 Markdown 文件出发，改写 → 排版 → 发布三位一体。渲染器只输出微信白名单合规的 HTML，双重 lint 确保不翻车，一条命令推到草稿箱。
 
+## ⚡ 一句话安装
+
+把下面这段话直接发给你的 AI Agent，即可自动完成克隆 + 链接 + 配置：
+
+```
+安装 Skill：从 https://github.com/leether/md2wechat 克隆，创建符号链接到 ~/.workbuddy/skills/md2wechat，然后运行 cp .env.example .env 并提醒我填写公众号凭据
+```
+
+> 适用于 WorkBuddy、Claude Code 等支持 Skill 安装的 Agent。手动安装见[下方](#安装为-workbuddy-skill)。
+
 ## 适合 / 不适合
 
 **适合你，如果：**
