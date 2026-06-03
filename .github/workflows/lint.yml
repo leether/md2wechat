@@ -1,0 +1,35 @@
+name: Lint
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'SKILL.md'
+      - 'scripts/**'
+  pull_request:
+    paths:
+      - 'SKILL.md'
+      - 'scripts/**'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate SKILL.md frontmatter
+        run: |
+          head -5 SKILL.md | grep -q '^---$' || { echo "SKILL.md missing frontmatter"; exit 1; }
+          head -5 SKILL.md | grep -q 'name:' || { echo "SKILL.md missing name field"; exit 1; }
+          echo "✅ SKILL.md frontmatter valid"
+
+      - name: Lint scripts syntax
+        run: |
+          for f in scripts/*.mjs scripts/lib/*.mjs; do
+            node --check "$f" && echo "✅ $f" || exit 1
+          done
