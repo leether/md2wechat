@@ -186,6 +186,7 @@ node scripts/create_wechat_draft.mjs \
   --author "作者名" \
   --open-comment 1
 # --thumb-image 可省略，省略时自动生成纯色占位封面（建议在微信后台替换）
+# --update <media_id> 可指定更新已有草稿而非新建（配合 --update-index 指定多图文序号）
 ```
 
 **方式 B：通过跳板机推送**（本地 IP 不在白名单时）

@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **更新已有草稿**：`create_wechat_draft.mjs` 新增 `--update <media_id>` 和 `--update-index <number>` 参数，支持覆盖更新已有草稿而非新建（灵感来自 lurj 的 md2wechat 包）
+
 ## [0.2.0] - 2026-06-03
 
 ### Added
