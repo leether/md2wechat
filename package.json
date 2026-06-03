@@ -1,9 +1,12 @@
 {
-  "name": "md2wechat",
-  "version": "0.1.0",
+  "name": "@leether/md2wechat",
+  "version": "0.2.0",
   "description": "Markdown to WeChat Official Account — compliant HTML rendering & draft publishing",
   "license": "MIT",
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "keywords": [
     "md2wechat",
     "wechat",
