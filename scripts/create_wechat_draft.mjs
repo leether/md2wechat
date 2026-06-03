@@ -8,6 +8,7 @@ import { parseArgs, printHelp, requireArg } from "./lib/memory-lib.mjs";
 
 const stableTokenEndpoint = "https://api.weixin.qq.com/cgi-bin/stable_token";
 const draftAddEndpoint = "https://api.weixin.qq.com/cgi-bin/draft/add";
+const draftUpdateEndpoint = "https://api.weixin.qq.com/cgi-bin/draft/update";
 const imageAddEndpoint = "https://api.weixin.qq.com/cgi-bin/material/add_material";
 const defaultEnvPath = path.resolve(process.cwd(), ".env");
 const targetCoverAspectRatio = 2.35;
@@ -1346,6 +1347,8 @@ export function resolveDraftPlan(argv = process.argv.slice(2)) {
     thumbImagePath,
     pictureImagePaths: imagePaths.map((imagePath) => path.resolve(process.cwd(), imagePath)),
     lintReportPath: args["lint-report"] ? path.resolve(process.cwd(), String(args["lint-report"])) : "",
+    updateMediaId: args.update ? String(args.update).trim() : "",
+    updateIndex: args["update-index"] ? String(args["update-index"]).trim() : "0",
     payload: {
       articles: [draftArticle],
     },
@@ -1383,6 +1386,8 @@ export async function createWechatDraft(argv = process.argv.slice(2)) {
       "  --account <name>             Named WeChat account, e.g. my_account",
       "  --open-comment <0|1>         Enable comments",
       "  --fans-only-comment <0|1>    Restrict comments to followers",
+      "  --update <media_id>          Update existing draft instead of creating new",
+      "  --update-index <number>      Article index for update (default: 0)",
       "  --crop-235-1 <coords>        Optional cover crop, e.g. 0.1_0_1_0.5",
       "  --crop-1-1 <coords>          Optional square cover crop",
       "  --env <path>                 Override .env path",
@@ -1449,11 +1454,21 @@ export async function createWechatDraft(argv = process.argv.slice(2)) {
       accessToken,
     });
   }
-  const url = `${draftAddEndpoint}?access_token=${encodeURIComponent(accessToken)}`;
+
+  let endpoint = draftAddEndpoint;
+  const isUpdate = Boolean(plan.updateMediaId);
+  if (isUpdate) {
+    endpoint = draftUpdateEndpoint;
+    plan.payload.media_id = plan.updateMediaId;
+    plan.payload.index = parseInt(plan.updateIndex, 10) || 0;
+  }
+
+  const url = `${endpoint}?access_token=${encodeURIComponent(accessToken)}`;
   const result = postJson(url, plan.payload);
 
   if (result.errcode && result.errcode !== 0) {
-    throw new Error(`WeChat draft/add failed: ${JSON.stringify(result)}`);
+    const action = isUpdate ? "draft/update" : "draft/add";
+    throw new Error(`WeChat ${action} failed: ${JSON.stringify(result)}`);
   }
 
   console.log(
