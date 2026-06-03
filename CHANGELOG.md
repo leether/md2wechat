@@ -72,5 +72,6 @@
 - 标题和 digest 的 GEO 优化：从纯悬念型改为「搜索词 + 悬念」双轨结构
 - 渲染时 `--env` 参数缺失导致 footer 静默缺失的问题已在 SKILL.md 中强调
 
-[Unreleased]: https://github.com/leether/md2wechat/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/leether/md2wechat/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/leether/md2wechat/releases/tag/v0.2.0
 [0.1.0]: https://github.com/leether/md2wechat/releases/tag/v0.1.0
