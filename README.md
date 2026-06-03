@@ -1,8 +1,13 @@
 # md2wechat
 
 [![GitHub release](https://img.shields.io/github/v/release/leether/md2wechat)](https://github.com/leether/md2wechat/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/leether/md2wechat/blob/main/LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node.js >=18](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
+[![Last commit](https://img.shields.io/github/last-commit/leether/md2wechat)](https://github.com/leether/md2wechat/commits/main)
+[![Lint](https://img.shields.io/github/actions/workflow/status/leether/md2wechat/lint.yml?branch=main&label=lint)](https://github.com/leether/md2wechat/actions/workflows/lint.yml)
+[![Release](https://img.shields.io/github/actions/workflow/status/leether/md2wechat/release.yml?label=release)](https://github.com/leether/md2wechat/actions/workflows/release.yml)
+[![Stars](https://img.shields.io/github/stars/leether/md2wechat)](https://github.com/leether/md2wechat/stargazers)
+[![Code size](https://img.shields.io/github/languages/code-size/leether/md2wechat)](https://github.com/leether/md2wechat)
 
 > *每次渲染完贴到微信后台，排版不是崩了就是样式被吃了一半。后来自己写了个渲染器，终于不用再猜微信会过滤什么了。*
 
