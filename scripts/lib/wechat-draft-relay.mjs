@@ -10,7 +10,7 @@ function normalizeWechatAccount(value = "") {
     .replace(/[^A-Z0-9]+/g, "_");
 }
 
-export const DEFAULT_WECHAT_DRAFT_RELAY_ROOT = "/home/admin/.cache/wechat-publication-draft-relay";
+export const DEFAULT_WECHAT_DRAFT_RELAY_ROOT = "/path/to/your/relay/directory";
 export const DEFAULT_WECHAT_DRAFT_RELAY_FAILURE_KEEP_COUNT = 3;
 export const DEFAULT_WECHAT_DRAFT_RELAY_FAILURE_MAX_AGE_HOURS = 24;
 
