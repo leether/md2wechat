@@ -27,9 +27,13 @@
 │   │ 排版渲染层   │  零 position / filter / gradient                  │
 │   └──────┬───────┘                                                  │
 │          ↓                                                          │
-│   ┌──────────────┐  微信 API + Audit Log                            │
+│   ┌──────────────┐  微信 API + Audit Log + 逐行核验                      │
 │   │ 推送回检层   │  自动验证 img / H2 / 卡片 / style 合规性          │
-│   └──────────────┘                                                  │
+│   └──────┬───────┘                                                  │
+│          ↓                                                          │
+│   ┌──────────────────┐  skill-compliance-harness 强制核查             │
+│   │ Step 5 事前 Harness│  14 项检查全部通过后才可汇报完成              │
+│   └──────────────────┘                                               │
 │                                                                     │
 │   → 合规 HTML + 草稿箱 media_id + 全链路质检报告                     │
 │                                                                     │
@@ -92,8 +96,9 @@ node scripts/create_wechat_draft.mjs \
 微信合规 HTML
   ↓ Step 2：准备图片（封面图必须有，正文插图可选）
 封面 PNG
-  ↓ Step 3：推送草稿箱（create_wechat_draft.mjs）
-  ↓ Step 4：回检验证
+  ↓ Step 3：推送草稿箱（create_wechat_draft.mjs → relay 跳板机）
+  ↓ Step 4：回检验证（Audit Log + 逐行核验）
+  ↓ Step 5：完成前核查（skill-compliance-harness — 不得跳过）
 ✅
 ```
 
@@ -185,9 +190,33 @@ node scripts/create_wechat_draft.mjs \
 # 详见 SKILL.md Step 3
 ```
 
-### Step 4：回检
+### Step 4：回检验证
 
-推送后必须从微信 API 拉回草稿验证，确认卡片数、样式、图片 CDN 等指标正常。详见 SKILL.md Step 4。
+推送后 `create_wechat_draft.mjs` **自动从微信 API 拉回草稿** 输出 Audit Log。关键检查项：
+
+| 检查项 | 期望值 |
+|--------|--------|
+| `<img` | ≥ 1（封面+插图+二维码）|
+| `mmbiz.qpic.cn` | 与 `<img` 数量一致 |
+| `style=` | > 50 |
+| `<h2` | > 0 |
+| `border-radius:22px` | 与卡片数一致 |
+| `position` / `filter` | 0 ✅ |
+
+> **必须逐行核验**：拿到 Audit Log 后，打开回检表格逐项比对。`errcode: 0` ≠ 完成。
+
+### Step 5：完成前核查（skill-compliance-harness）
+
+**管线最后一道门。** 在所有步骤执行完毕、告知用户"完成"之前，先加载合规核查 skill：
+
+```bash
+# 调用 Skill("skill-compliance-harness")
+# 自动定位回检表格 → 拆成检查清单 → 逐项核验 → 输出报告
+```
+
+核查未通过不得汇报完成。
+
+**依赖安装：** 本仓库包含 `references/skill-compliance-harness/`，将其符号链接或复制到你的 skills 目录即可。
 
 ## Markdown 扩展语法
 
@@ -336,6 +365,8 @@ md2wechat/                          # 仓库 = 可安装的 WorkBuddy Skill
 │   ├── style_examples.md             # 风格示例
 │   ├── content_methodology.md        # 选题方法论
 │   └── LICENSE
+├── references/skill-compliance-harness/  # 完成前核查 skill（Step 5）
+│   └── SKILL.md
 ├── examples/
 │   └── sample-article.md             # 示例文章
 ├── docs/
@@ -370,6 +401,7 @@ export PIPELINE_HOME=/path/to/md2wechat
 - **CTA 护栏**：文章含 CTA 信号（总结/结语/扫码关键词）但未配置 footer 时，输出警告（不阻止渲染）。配了 `.env` 的 `FOOTER_QR_PATH` 则自动附加
 - **IP 环境护栏**：在 `.env` 中配置 `WECHAT_PUBLISH_ALLOWED_HOSTS` / `WECHAT_PUBLISH_ALLOWED_IPS`，非白名单环境阻止推送
 - **写作质检护栏**：L1 规则违规阻止渲染，不会带着 AI 味文章上线
+- **合规核查护栏**（Step 5）：skill-compliance-harness 强制逐项核验 Audit Log，任何一项不通过不得汇报完成
 
 ## 交流群
 

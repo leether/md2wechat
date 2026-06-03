@@ -7,6 +7,33 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-03
+
+### Added
+
+- **Step 5 完成前核查（skill-compliance-harness）**：管线最后一道门，加载独立的合规核查 skill 逐项核验 Audit Log 后才可汇报完成
+- **skill-compliance-harness 依赖 skill**：`references/skill-compliance-harness/SKILL.md`，与 khazix-writer 并列作为必须安装的依赖
+- **relay 持久目录 + 版本化历史**：推送目录改为按账号/日期/版本号组织（`<ACCOUNT>/<YYYYMMDD>_<TITLE>/v{N}/`），所有历史版本保留
+
+### Changed
+
+- **SKILL.md 全面升级**：
+  - 完整流程加入 Step 5（Harness）
+  - Step 0 插图检查从"必做"改为"不得跳过"
+  - Step 1 增加禁止 inline import 替代 CLI 渲染的规则
+  - Step 4 增加「逐行核验规程」
+  - Step 3 relay 推送改为引用 `.env` 变量 + 版本化目录
+  - 已知坑新增 #20（Harness 不可跳过）、#21（禁止 inline import）、#22（不推荐跳过 lint）
+  - 依赖声明增加 `skill-compliance-harness`
+- **relay 推送脚本路径改为占位符**：`wechat-draft-relay.mjs` 中的 `/home/admin/...` 硬编码路径替换为 `/path/to/your/relay/directory`
+
+### Fixed
+
+- 隐私审查：移除了 `wechat-draft-relay.mjs` 中的服务器用户名和目录结构泄露
+
+[Unreleased]: https://github.com/leether/md2wechat/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/leether/md2wechat/releases/tag/v0.2.0
+
 ## [0.1.0] - 2026-05-31
 
 ### Added
