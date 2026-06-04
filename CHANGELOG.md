@@ -10,6 +10,14 @@
 ### Added
 
 - **更新已有草稿**：`create_wechat_draft.mjs` 新增 `--update <media_id>` 和 `--update-index <number>` 参数，支持覆盖更新已有草稿而非新建（灵感来自 lurj 的 md2wechat 包）
+- **SKILL.md 渲染前自检表**：Step 0 出口新增 5 项自检（破折号/双引号/标题≤21字/summary≤120字/插图占位），进 Step 1 前逐项确认，省一轮渲染往返
+- **已知坑 #23–28**：基于 2026-06-04 管线执行复盘新增 6 条教训（渲染前自检、压缩覆盖原文件、crop 从 preflight 复制、Dreamina 沙箱、标题/digest 二次校验、文件名全管线一致性）
+
+### Changed
+
+- **SKILL.md Step 2 图片压缩**：`--out cover-small.png` 改为 `--out cover.png`（覆盖原文件），杜绝文件名不匹配
+- **SKILL.md Step 2 Dreamina CLI**：明确标注 `dangerouslyDisableSandbox: true`，避免被沙箱拦截后浪费时间
+- **SKILL.md Step 3 推送**：补充 crop/title/digest 限制说明（裁剪参数从 preflight 复制、标题≤21字、summary≤120字）
 
 ## [0.2.0] - 2026-06-03
 

@@ -170,8 +170,8 @@ caption: 图片说明
 微信对图片有 2MB 限制，高清图需压缩：
 
 ```bash
-# macOS
-sips -Z 2000 cover.png --out cover-small.png
+# macOS — 覆盖原文件避免文件名不匹配
+sips -Z 2000 cover.png --out cover.png
 ```
 
 ### Step 3：推送草稿箱
