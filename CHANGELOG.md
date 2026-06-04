@@ -7,17 +7,28 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-04
+
 ### Added
 
 - **更新已有草稿**：`create_wechat_draft.mjs` 新增 `--update <media_id>` 和 `--update-index <number>` 参数，支持覆盖更新已有草稿而非新建（灵感来自 lurj 的 md2wechat 包）
 - **SKILL.md 渲染前自检表**：Step 0 出口新增 5 项自检（破折号/双引号/标题≤21字/summary≤120字/插图占位），进 Step 1 前逐项确认，省一轮渲染往返
 - **已知坑 #23–28**：基于 2026-06-04 管线执行复盘新增 6 条教训（渲染前自检、压缩覆盖原文件、crop 从 preflight 复制、Dreamina 沙箱、标题/digest 二次校验、文件名全管线一致性）
+- **隐私门禁（P0 硬门禁）**：`scripts/privacy-check.sh` + `.github/workflows/privacy-check.yml`，CI 端强制扫描，命中 P0 直接拒绝推送
+  - P0 阻断：API 密钥/私钥/JWT/凭据赋值/内网 IP
+  - P1 警告：个人邮箱/手机号
 
 ### Changed
 
 - **SKILL.md Step 2 图片压缩**：`--out cover-small.png` 改为 `--out cover.png`（覆盖原文件），杜绝文件名不匹配
 - **SKILL.md Step 2 Dreamina CLI**：明确标注 `dangerouslyDisableSandbox: true`，避免被沙箱拦截后浪费时间
 - **SKILL.md Step 3 推送**：补充 crop/title/digest 限制说明（裁剪参数从 preflight 复制、标题≤21字、summary≤120字）
+- **README.md**：图片压缩示例同步覆盖原文件
+- **CONTRIBUTING.md**：补充隐私门禁双防线说明和 pre-push hook 安装方法
+
+### Fixed
+
+- 隐私审查：移除 `wechat-draft-relay.mjs` 中的服务器用户名和目录结构泄露
 
 ## [0.2.0] - 2026-06-03
 
@@ -42,9 +53,6 @@
 ### Fixed
 
 - 隐私审查：移除了 `wechat-draft-relay.mjs` 中的服务器用户名和目录结构泄露
-
-[Unreleased]: https://github.com/leether/md2wechat/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/leether/md2wechat/releases/tag/v0.2.0
 
 ## [0.1.0] - 2026-05-31
 
@@ -84,6 +92,7 @@
 - 标题和 digest 的 GEO 优化：从纯悬念型改为「搜索词 + 悬念」双轨结构
 - 渲染时 `--env` 参数缺失导致 footer 静默缺失的问题已在 SKILL.md 中强调
 
-[Unreleased]: https://github.com/leether/md2wechat/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/leether/md2wechat/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/leether/md2wechat/releases/tag/v0.3.0
 [0.2.0]: https://github.com/leether/md2wechat/releases/tag/v0.2.0
 [0.1.0]: https://github.com/leether/md2wechat/releases/tag/v0.1.0
