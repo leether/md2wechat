@@ -82,13 +82,35 @@ node scripts/render_wechat_editorial.mjs \
 - `filter:` 出现次数 = 0
 - 卡片数与 Markdown 中 `:::wechat-card` 数量一致
 
-### 隐私检查
+### 隐私门禁（硬门禁，提交前必过）
 
-提交前确认不包含：
+项目有两道防线：
 
-- 真实公众号 AppID / AppSecret
-- 个人路径（`/Users/xxx`）
-- 主机名、邮箱、品牌名
+| 防线 | 触发点 | 方式 |
+|------|--------|------|
+| **GitHub Actions** | push/PR 到 main | 服务端硬门禁，无法绕过 |
+| **本地 pre-push** | `git push` | 本地第一道防线 |
+
+**P0 阻断**（命中即拒绝推送）：
+- API 密钥（OpenAI/GitHub/Slack/AWS 等已知格式）
+- 私钥（PEM 头/SSH 私钥）
+- JWT Token
+- 通用凭据赋值（非占位值的 `SECRET=`/`TOKEN=`/`PASSWORD=` 等）
+- 内网 IP（192.168 / 10.x / 172.16-31）
+
+**P1 警告**（不阻断，但会提醒确认）：
+- 个人邮箱
+- 手机号码
+
+**本地运行**：
+```bash
+./scripts/privacy-check.sh --full
+```
+
+**安装 pre-push hook**（可选，推荐）：
+```bash
+ln -sf ../../scripts/privacy-check.sh .git/hooks/pre-push
+```
 
 ## 目录结构
 

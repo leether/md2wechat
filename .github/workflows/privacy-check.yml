@@ -1,0 +1,22 @@
+name: Privacy Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # 允许手动触发
+  workflow_dispatch:
+
+jobs:
+  privacy-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Privacy Gate
+        run: |
+          chmod +x scripts/privacy-check.sh
+          ./scripts/privacy-check.sh --full
