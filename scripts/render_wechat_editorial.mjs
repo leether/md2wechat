@@ -1551,7 +1551,11 @@ function main(argv = process.argv.slice(2)) {
   return lintResult.passed ? 0 : 2;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+const isMain = process.argv[1] && (
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url) ||
+  (fs.existsSync(process.argv[1]) && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
+);
+if (isMain) {
   try {
     process.exitCode = main();
   } catch (error) {

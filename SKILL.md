@@ -717,3 +717,4 @@ console.log(\"cards:\", (content.match(/border-radius:22px/g)||[]).length);
 26. **Dreamina CLI 需要 dangerouslyDisableSandbox**：WorkBuddy 沙箱环境会拦截 Dreamina CLI 的执行。首次调用被拒后，向用户申请授权，加 `dangerouslyDisableSandbox: true` 重试
 27. **标题和 digest 推送时也会被微信二次校验**：渲染时的 lint 挡不住标题/digest 超限，推送时微信 API 会直接拒。在 Step 0 出口自检标题 ≤21 字、summary ≤120 字，避免推到 relay 再报错返工
 28. **文件名一致性贯穿全管线**：MD 占位图 → 生成真实图 → 压缩保持原名 → 更新 MD 引用路径 → HTML 路径替换。每一步都要对齐文件名，不要在不同阶段用不同后缀（`-compressed` / `-small` / `-v2`）
+29. **符号链接会导致 CLI 入口判断失败**：`render_wechat_editorial.mjs` 末尾用 `path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)` 判断是否为主入口。当仓库通过符号链接访问时（如 `~/.workbuddy/skills/md2wechat -> ~/workspace/md2wechat`），`process.argv[1]` 是链接路径而 `import.meta.url` 解析为真实路径，导致 `main()` 不被调用、渲染无输出。修复方案是同时比较 `fs.realpathSync(process.argv[1])` 和 `fileURLToPath(import.meta.url)`
