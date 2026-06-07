@@ -81,41 +81,46 @@ export class SelfReport {
     return mapping[category] || `auto_${category.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
   }
 
-  autoEncode() {
+  async autoEncode() {
     if (!this.rules || Object.keys(this.rules).length === 0) return 0;
 
-    const l3Checks = this.rules["l3_pattern_checks"] || {};
+    // ── 代码驱动升级：从写 JSON 配置 → 生成可执行代码 ──
+    const { generateCheck, persistCheck } = await import("./code-generator.mjs");
     let newRulesCount = 0;
 
     for (const fp of this.frictionPoints) {
       if (!fp.auto_encode) continue;
+      if (!fp.description || fp.description === "undefined") continue;
 
       const ruleId = fp.rule_id || this._generateRuleId(fp.category);
       fp.rule_id = ruleId;
 
-      // 检查规则是否已存在
-      if (!l3Checks[ruleId]) {
-        l3Checks[ruleId] = {
-          id: ruleId,
-          name: `[AUTO] ${fp.category}`,
-          description: fp.description,
-          auto_detect: false,
-          manual_checklist: fp.resolution ? [fp.resolution] : ["请人工确认此问题已修复"],
-          origin_friction: fp.id,
-          autopoiesis: true,
-        };
+      // 检查规则是否已存在（代码文件或 JSON 配置）
+      const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+      const checkFilePath = path.join(scriptDir, "preflight-checks", `${ruleId}.mjs`);
+      const l1Exists = this.rules["l1_mandatory_checks"] && this.rules["l1_mandatory_checks"][ruleId];
+      if (fs.existsSync(checkFilePath) || l1Exists) continue;
+
+      // 生成可执行检查代码
+      try {
+        const generated = generateCheck(fp);
+        persistCheck(generated);
         newRulesCount++;
+        console.log(`[SelfReport] Auto-generated check: ${ruleId} → ${generated.checkType} → ${generated.filePath}`);
+      } catch (e) {
+        console.error(`[SelfReport] Failed to generate check for ${ruleId}: ${e.message}`);
       }
     }
 
     if (newRulesCount > 0) {
-      this.rules["l3_pattern_checks"] = l3Checks;
-      this.rules["autopoiesis"] = {
-        self_report_enabled: true,
-        auto_encode: true,
-        last_evolution: new Date().toISOString(),
-        evolution_count: (this.rules["autopoiesis"]?.evolution_count || 0) + newRulesCount,
-      };
+      // 重新加载规则（因为 persistCheck 已修改 push_rules.json）
+      this.rules = this._loadJson(this.rulesPath);
+      this.rules["autopoiesis"] = this.rules["autopoiesis"] || {};
+      this.rules["autopoiesis"].self_report_enabled = true;
+      this.rules["autopoiesis"].auto_encode = true;
+      this.rules["autopoiesis"].code_generation = true;
+      this.rules["autopoiesis"].last_evolution = new Date().toISOString();
+      this.rules["autopoiesis"].evolution_count = (this.rules["autopoiesis"]?.evolution_count || 0) + newRulesCount;
       this._saveJson(this.rulesPath, this.rules);
     }
 
@@ -414,7 +419,7 @@ Examples:
 `);
 }
 
-function main() {
+async function main() {
   const args = parseArgs(process.argv.slice(2));
 
   if (args.help) {
@@ -515,7 +520,7 @@ function main() {
     }
 
     if (newCaptures > 0) {
-      sr.autoEncode();
+      await sr.autoEncode();
     }
 
     if (!args.json) {
@@ -537,7 +542,7 @@ function main() {
   }
 
   if (args["auto-encode"]) {
-    const count = sr.autoEncode();
+    const count = await sr.autoEncode();
     if (!args.json) console.log(`Auto-encoded ${count} new rule(s)`);
   }
 
@@ -563,10 +568,10 @@ const isMain = process.argv[1] && (
   (fs.existsSync(process.argv[1]) && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
 );
 if (isMain) {
-  try {
-    process.exitCode = main();
-  } catch (error) {
+  main().then((code) => {
+    process.exitCode = code ?? 0;
+  }).catch((error) => {
     console.error(error.message);
     process.exitCode = 1;
-  }
+  });
 }

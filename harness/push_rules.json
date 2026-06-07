@@ -1,8 +1,8 @@
 {
-  "_description": "md2wechat 分层质检规则定义。L1=硬阻塞，L2=警告，L3=模式检查。任何 L1 失败必须阻断流程，L2 失败输出警告但可继续，L3 失败输出人工检查清单。",
-  "version": "1.2.0",
+  "_description": "md2wechat 分层质检规则定义。L1=硬阻塞（含子代理），L2=警告。任何 L1 失败必须阻断流程，L2 失败输出警告但可继续。",
+  "version": "2.0.0",
   "l1_mandatory_checks": {
-    "_description": "L1 硬阻塞：任何一项失败，不得进入上传/推送阶段",
+    "_description": "L1 硬阻塞：任何一项失败，不得进入上传/推送阶段。包含纯代码自动检查 + 子代理检查。",
     "digest_length": {
       "id": "digest_length",
       "name": "摘要长度",
@@ -64,6 +64,66 @@
       "auto_detect": true,
       "check_fn": "preflight._checkHtmlCompliance",
       "block_on_fail": true
+    },
+    "cta_integrity": {
+      "id": "cta_integrity",
+      "name": "CTA 完整性",
+      "description": "文章结尾包含引导关注/点赞/转发的 CTA 区域，二维码可正常扫描",
+      "auto_detect": true,
+      "check_fn": "preflight._checkCtaIntegrity",
+      "block_on_fail": true
+    },
+    "card_count_match": {
+      "id": "card_count_match",
+      "name": "卡片渲染一致性",
+      "description": "HTML 中渲染的卡片数与 Markdown 中声明的卡片数一致",
+      "auto_detect": true,
+      "check_fn": "preflight._checkCardCount",
+      "block_on_fail": true
+    },
+    "table_count_match": {
+      "id": "table_count_match",
+      "name": "表格渲染一致性",
+      "description": "HTML 中渲染的表格数与 Markdown 中声明的表格数一致（注意卡片内表格不会被渲染）",
+      "auto_detect": true,
+      "check_fn": "preflight._checkTableCount",
+      "block_on_fail": true
+    },
+    "image_cdn_count_match": {
+      "id": "image_cdn_count_match",
+      "name": "图片 CDN 一致性",
+      "description": "HTML 中 mmbiz.qpic.cn CDN 图片数与 <img> 标签总数一致（封面+插图+二维码）",
+      "auto_detect": true,
+      "check_fn": "preflight._checkImageCdnCount",
+      "block_on_fail": true
+    },
+    "narrative_perspective": {
+      "id": "narrative_perspective",
+      "name": "叙事视角一致性",
+      "description": "文章主语「我」应在全文中保持统一视角，不得在中途切换为 AI Agent 或用户视角",
+      "auto_detect": true,
+      "check_fn": "preflight._checkNarrativePerspective",
+      "block_on_fail": true,
+      "origin_friction": "f034",
+      "autopoiesis": true
+    },
+    "cover_placeholder_text": {
+      "id": "cover_placeholder_text",
+      "name": "封面图占位文字",
+      "description": "AI 生成的封面图可能携带模板占位文字（如「【中文标题放置区】」），通过 OCR 自动检测",
+      "auto_detect": true,
+      "check_fn": "preflight._checkCoverPlaceholder",
+      "block_on_fail": true,
+      "origin_friction": "f035",
+      "autopoiesis": true
+    },
+    "source_verification": {
+      "id": "source_verification",
+      "name": "原文量化描述核对",
+      "description": "涉及时间、倍数、人数、版本号等精确数字的改写，必须与原文逐字核对，不得凭记忆填充。由子代理自动执行数字匹配。",
+      "auto_detect": true,
+      "agent_fn": "agents.source-verification",
+      "block_on_fail": true
     }
   },
   "l2_warning_checks": {
@@ -103,126 +163,19 @@
       "id": "summary_quality",
       "name": "摘要质量",
       "description": "summary 应包含核心结论 + 具体数据/论据，而非泛泛概括",
-      "auto_detect": false,
+      "auto_detect": true,
+      "check_fn": "preflight._checkSummaryQuality",
       "threshold": {
         "min_data_points": 1,
         "min_chars": 20
       }
     }
   },
-  "l3_pattern_checks": {
-    "_description": "L3 模式检查：自动检测+人工确认。auto_detect=true 的项程序自动检查并输出报告，auto_detect=false 的项输出人工检查清单",
-    "source_verification": {
-      "id": "source_verification",
-      "name": "原文量化描述核对",
-      "description": "涉及时间、倍数、人数、版本号等精确数字的改写，必须与原文逐字核对，不得凭记忆填充",
-      "auto_detect": false,
-      "manual_checklist": [
-        "所有精确数字（时间/倍数/人数/金额/版本号）已回源核对",
-        "未发现凭记忆改写导致的夸大或缩小",
-        "推断性表述已明确标注为推断，非事实"
-      ]
-    },
-    "cta_integrity": {
-      "id": "cta_integrity",
-      "name": "CTA 完整性",
-      "description": "文章结尾包含引导关注/点赞/转发的 CTA 区域，二维码可正常扫描",
-      "auto_detect": true,
-      "check_fn": "preflight._checkCtaIntegrity",
-      "manual_checklist": [
-        "footer 区域存在且渲染正确",
-        "二维码图片可正常加载",
-        "CTA 文案符合公众号品牌"
-      ]
-    },
-    "card_count_match": {
-      "id": "card_count_match",
-      "name": "卡片渲染一致性",
-      "description": "HTML 中渲染的卡片数与 Markdown 中声明的卡片数一致",
-      "auto_detect": true,
-      "check_fn": "preflight._checkCardCount",
-      "manual_checklist": [
-        "border-radius:22px 数量与 MD 中 :::wechat-card 数量一致",
-        "卡片被静默忽略时 style 数正常但卡片数为 0"
-      ]
-    },
-    "table_count_match": {
-      "id": "table_count_match",
-      "name": "表格渲染一致性",
-      "description": "HTML 中渲染的表格数与 Markdown 中声明的表格数一致（注意卡片内表格不会被渲染）",
-      "auto_detect": true,
-      "check_fn": "preflight._checkTableCount",
-      "manual_checklist": [
-        "<table> 数量与 MD 中表格数量一致",
-        "卡片内无表格（会被静默忽略）"
-      ]
-    },
-    "image_cdn_count_match": {
-      "id": "image_cdn_count_match",
-      "name": "图片 CDN 一致性",
-      "description": "HTML 中 mmbiz.qpic.cn CDN 图片数与 <img> 标签总数一致（封面+插图+二维码）",
-      "auto_detect": true,
-      "check_fn": "preflight._checkImageCdnCount",
-      "manual_checklist": [
-        "所有本地图片路径已替换为文件名",
-        "推送后 CDN 图片数等于 img 标签数"
-      ]
-    },
-    "local_path_absence": {
-      "id": "local_path_absence",
-      "name": "[AUTO] 路径处理",
-      "description": "bundle 残留旧文件导致推送旧版 HTML",
-      "auto_detect": false,
-      "manual_checklist": [
-        "bundle_wechat_article.mjs 自动清理输出目录后再复制"
-      ],
-      "origin_friction": "f030",
-      "autopoiesis": true
-    },
-    "narrative_perspective": {
-      "id": "narrative_perspective",
-      "name": "叙事视角一致性",
-      "description": "文章主语\"我\"应在全文中保持统一视角，不得在中途切换为 AI Agent 或用户视角",
-      "auto_detect": true,
-      "check_fn": "preflight._checkNarrativePerspective",
-      "manual_checklist": [
-        "全文搜索\"用户问我\"/\"我想了想\"等 AI 视角表述",
-        "确认所有\"我\"均指向同一主体（公众号作者）",
-        "涉及对话场景时，明确标注说话者身份"
-      ],
-      "origin_friction": "f034",
-      "autopoiesis": true
-    },
-    "cover_placeholder_text": {
-      "id": "cover_placeholder_text",
-      "name": "封面图占位文字",
-      "description": "AI 生成的封面图可能携带模板占位文字（如\"【中文标题放置区】\"），需人工确认清理",
-      "auto_detect": false,
-      "manual_checklist": [
-        "目视检查封面图是否存在占位文字或模板痕迹",
-        "如有占位文字，使用图像编辑工具去除或重新生成封面",
-        "确认封面图上的文字均为最终文案"
-      ],
-      "origin_friction": "f035",
-      "autopoiesis": true
-    },
-    "env_relay_transfer": {
-      "id": "env_relay_transfer",
-      "name": "[AUTO] .env 上传提醒",
-      "description": "scp * 不会复制隐藏文件，bundle 中的 .env 需要单独上传到 relay",
-      "auto_detect": false,
-      "manual_checklist": [
-        "执行完 bundle scp 后，单独 scp .env 到 relay 目标目录",
-        "确认 relay 上的 .env 包含 WECHAT_<ACCOUNT>_APP_ID 和 WECHAT_<ACCOUNT>_APP_SECRET"
-      ],
-      "origin_friction": "f036",
-      "autopoiesis": true
-    }
-  },
   "autopoiesis": {
     "self_report_enabled": true,
     "auto_encode": true,
-    "last_evolution": "2026-06-07T07:11:00.000Z",
-    "evolution_count": 4
+    "code_generation": true,
+    "last_evolution": "2026-06-07T08:36:50.521Z",
+    "evolution_count": 6
   }
 }
