@@ -12,7 +12,47 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CHECKS_DIR = path.resolve(__dirname, "preflight-checks");
+const TESTS_DIR = path.resolve(CHECKS_DIR, "__tests__");
+const AUDIT_DIR = path.resolve(__dirname, "..", "docs", "evolution-audit");
+const SNAPSHOTS_DIR = path.resolve(__dirname, "evolution-snapshots");
 const RULES_PATH = path.resolve(__dirname, "push_rules.json");
+
+function ruleIdOf(fp) {
+  return String(fp.rule_id || fp.id).replace(/[^a-zA-Z0-9_]/g, "_");
+}
+
+export function checkFunctionName(ruleId) {
+  return `check_${String(ruleId).replace(/[^a-zA-Z0-9_$]/g, "_")}`;
+}
+
+function js(value) {
+  return JSON.stringify(String(value));
+}
+
+function timestampForPath(date = new Date()) {
+  return date.toISOString().replace(/[:.]/g, "-");
+}
+
+function safePathPart(value) {
+  return String(value).replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+function extractPatternKeywords(description = "") {
+  const keywords = [];
+  const quoteMatches = description.match(/["""']([^"""']+)["""']/g);
+  if (quoteMatches) {
+    for (const m of quoteMatches) {
+      keywords.push(m.replace(/["""']/g, ""));
+    }
+  }
+
+  if (keywords.length === 0) {
+    const phrases = description.split(/[,，.。;；]/).filter((s) => s.trim().length > 2);
+    if (phrases.length > 0) keywords.push(phrases[0].trim().slice(0, 20));
+  }
+
+  return keywords;
+}
 
 /**
  * 推断检查类型
@@ -54,8 +94,17 @@ function extractThreshold(description) {
  * 生成 threshold 类型的检查代码
  */
 function generateThresholdCheck(fp, threshold) {
-  const fnName = `check_${fp.rule_id || fp.id}`;
+  const ruleId = ruleIdOf(fp);
+  const fnName = checkFunctionName(ruleId);
+  const ruleIdLiteral = js(ruleId);
   let body = "";
+
+  if (!threshold) {
+    body = `
+  return { passed: true, level: "OBSERVATION", enforcement: "observe", id: ${ruleIdLiteral}, skipped: true, reason: "No concrete threshold could be inferred" };`;
+    return `export function ${fnName}(context) {${body}
+}`;
+  }
 
   if (threshold.type === "max_chars") {
     body = `
@@ -64,32 +113,34 @@ function generateThresholdCheck(fp, threshold) {
   if (len > ${threshold.value}) {
     return {
       passed: false,
-      level: "L1",
-      id: "${fp.rule_id || fp.id}",
+      level: "OBSERVATION",
+      enforcement: "observe",
+      id: ${ruleIdLiteral},
       message: \`Content exceeds ${threshold.value} characters: got \${len}\`,
       actual: len,
       limit: ${threshold.value},
     };
   }
-  return { passed: true, level: "L1", id: "${fp.rule_id || fp.id}", actual: len };`;
+  return { passed: true, level: "OBSERVATION", enforcement: "observe", id: ${ruleIdLiteral}, actual: len };`;
   } else if (threshold.type === "max_bytes") {
     body = `
   const bytes = Buffer.byteLength(context.html, "utf8");
   if (bytes > ${threshold.value}) {
     return {
       passed: false,
-      level: "L1",
-      id: "${fp.rule_id || fp.id}",
+      level: "OBSERVATION",
+      enforcement: "observe",
+      id: ${ruleIdLiteral},
       message: \`Content exceeds ${threshold.value} bytes: got \${bytes}\`,
       actual: bytes,
       limit: ${threshold.value},
     };
   }
-  return { passed: true, level: "L1", id: "${fp.rule_id || fp.id}", actual: bytes };`;
+  return { passed: true, level: "OBSERVATION", enforcement: "observe", id: ${ruleIdLiteral}, actual: bytes };`;
   } else {
     body = `
   // TODO: Implement threshold check for ${threshold.type}
-  return { passed: true, level: "L1", id: "${fp.rule_id || fp.id}", skipped: true, reason: "Threshold type not yet supported" };`;
+  return { passed: true, level: "OBSERVATION", enforcement: "observe", id: ${ruleIdLiteral}, skipped: true, reason: "Threshold type not yet supported" };`;
   }
 
   return `export function ${fnName}(context) {${body}
@@ -100,40 +151,26 @@ function generateThresholdCheck(fp, threshold) {
  * 生成 pattern 类型的检查代码
  */
 function generatePatternCheck(fp) {
-  const fnName = `check_${fp.rule_id || fp.id}`;
+  const ruleId = ruleIdOf(fp);
+  const fnName = checkFunctionName(ruleId);
+  const ruleIdLiteral = js(ruleId);
   const desc = fp.description || "";
-
-  // 尝试从描述中提取关键词
-  const keywords = [];
-  const quoteMatches = desc.match(/["""']([^"""']+)["""']/g);
-  if (quoteMatches) {
-    for (const m of quoteMatches) {
-      keywords.push(m.replace(/["""']/g, ""));
-    }
-  }
-
-  // 如果没有提取到关键词，使用 description 中的关键短语
-  if (keywords.length === 0) {
-    const phrases = desc.split(/[,，.。;；]/).filter((s) => s.trim().length > 2);
-    if (phrases.length > 0) keywords.push(phrases[0].trim().slice(0, 20));
-  }
-
-  const keywordChecks = keywords.map((kw) => `context.html.includes("${kw}")`).join(" || ");
-  const checkLogic = keywordChecks || "false";
+  const keywords = extractPatternKeywords(desc);
 
   return `export function ${fnName}(context) {
-  const forbidden = [${keywords.map((k) => `"${k}"`).join(", ")}];
+  const forbidden = [${keywords.map((k) => js(k)).join(", ")}];
   const found = forbidden.filter((kw) => context.html.includes(kw));
   if (found.length > 0) {
     return {
       passed: false,
-      level: "L1",
-      id: "${fp.rule_id || fp.id}",
+      level: "OBSERVATION",
+      enforcement: "observe",
+      id: ${ruleIdLiteral},
       message: \`Forbidden pattern detected: "\${found.join(", ")}"\`,
       details: { found },
     };
   }
-  return { passed: true, level: "L1", id: "${fp.rule_id || fp.id}" };
+  return { passed: true, level: "OBSERVATION", enforcement: "observe", id: ${ruleIdLiteral} };
 }`;
 }
 
@@ -141,7 +178,8 @@ function generatePatternCheck(fp) {
  * 生成 semantic 类型的子代理脚本
  */
 function generateSemanticAgent(fp) {
-  const fnName = `check_${fp.rule_id || fp.id}`;
+  const ruleId = ruleIdOf(fp);
+  const fnName = checkFunctionName(ruleId);
   return `export function ${fnName}(context) {
   // Semantic check — requires deeper understanding.
   // This is a generated scaffold. Enhance with LLM or heuristics as needed.
@@ -152,8 +190,9 @@ function generateSemanticAgent(fp) {
 
   return {
     passed: true,
-    level: "L2",
-    id: "${fp.rule_id || fp.id}",
+    level: "OBSERVATION",
+    enforcement: "observe",
+    id: ${js(ruleId)},
     skipped: true,
     reason: "Semantic check scaffold — implement heuristic or agent logic",
   };
@@ -164,18 +203,119 @@ function generateSemanticAgent(fp) {
  * 生成 agent 类型的子代理脚本
  */
 function generateAgent(fp) {
-  const fnName = `check_${fp.rule_id || fp.id}`;
+  const ruleId = ruleIdOf(fp);
+  const fnName = checkFunctionName(ruleId);
   return `export function ${fnName}(context) {
   // Agent-based check — spawn external process or call LLM.
   // This is a generated scaffold.
   return {
     passed: true,
-    level: "L2",
-    id: "${fp.rule_id || fp.id}",
+    level: "OBSERVATION",
+    enforcement: "observe",
+    id: ${js(ruleId)},
     skipped: true,
     reason: "Agent check scaffold — implement subprocess or API call",
   };
 }`;
+}
+
+function generateCompanionTest({ fp, ruleId, fileName, checkType, threshold }) {
+  const fnName = checkFunctionName(ruleId);
+  const baseContext = `{ html: "<p>safe body</p>", md: "safe body", mdPath: "", htmlDir: "", title: "title", author: "author", digest: "digest" }`;
+  const assertions = [
+    `const smoke = ${fnName}(${baseContext});`,
+    `assert.equal(typeof smoke.passed, "boolean");`,
+    `assert.equal(smoke.id, ${js(ruleId)});`,
+    `assert.equal(smoke.enforcement, "observe");`,
+  ];
+
+  if (checkType === "threshold" && threshold?.type === "max_chars") {
+    assertions.push(
+      `const fail = ${fnName}({ ...${baseContext}, html: "<p>" + "x".repeat(${threshold.value + 1}) + "</p>" });`,
+      `assert.equal(fail.passed, false);`,
+      `assert.equal(fail.level, "OBSERVATION");`,
+    );
+  } else if (checkType === "threshold" && threshold?.type === "max_bytes") {
+    assertions.push(
+      `const fail = ${fnName}({ ...${baseContext}, html: "x".repeat(${threshold.value + 1}) });`,
+      `assert.equal(fail.passed, false);`,
+      `assert.equal(fail.level, "OBSERVATION");`,
+    );
+  } else if (checkType === "pattern") {
+    const keyword = extractPatternKeywords(fp.description || "")[0];
+    if (keyword) {
+      assertions.push(
+        `const fail = ${fnName}({ ...${baseContext}, html: ${js(`<p>${keyword}</p>`)} });`,
+        `assert.equal(fail.passed, false);`,
+        `assert.deepEqual(fail.details.found, [${js(keyword)}]);`,
+      );
+    }
+  } else {
+    assertions.push(`assert.equal(smoke.skipped, true);`);
+  }
+
+  return `import assert from "node:assert/strict";
+import { ${fnName} } from "../${fileName}";
+
+${assertions.join("\n")}
+`;
+}
+
+function copyIfExists(src, dest) {
+  if (!fs.existsSync(src)) return false;
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.copyFileSync(src, dest);
+  return true;
+}
+
+function createRollbackSnapshot(generated, timestamp) {
+  const snapshotDir = path.join(SNAPSHOTS_DIR, `${timestamp}-${safePathPart(generated.ruleId)}`);
+  fs.mkdirSync(snapshotDir, { recursive: true });
+  const files = [];
+
+  if (copyIfExists(RULES_PATH, path.join(snapshotDir, "push_rules.before.json"))) {
+    files.push("push_rules.before.json");
+  }
+  const safeRuleId = safePathPart(generated.ruleId);
+  if (copyIfExists(generated.filePath, path.join(snapshotDir, `${safeRuleId}.before.mjs`))) {
+    files.push(`${safeRuleId}.before.mjs`);
+  }
+  if (copyIfExists(generated.testPath, path.join(snapshotDir, `${safeRuleId}.test.before.mjs`))) {
+    files.push(`${safeRuleId}.test.before.mjs`);
+  }
+
+  const manifest = {
+    timestamp,
+    rule_id: generated.ruleId,
+    snapshot_dir: snapshotDir,
+    files,
+    rollback_hint: "Restore push_rules.before.json to harness/push_rules.json and remove or restore generated check/test files listed in the audit record.",
+  };
+  fs.writeFileSync(path.join(snapshotDir, "rollback.json"), JSON.stringify(manifest, null, 2), "utf8");
+  return { snapshotDir, files };
+}
+
+function writeEvolutionAudit(generated, timestamp, rollback, registeredLayer) {
+  fs.mkdirSync(AUDIT_DIR, { recursive: true });
+  const auditPath = path.join(AUDIT_DIR, `${timestamp}-${safePathPart(generated.ruleId)}.json`);
+  const audit = {
+    timestamp,
+    rule_id: generated.ruleId,
+    check_type: generated.checkType,
+    agent_type: generated.agentType,
+    registered_layer: registeredLayer,
+    enforcement: generated.register.enforcement,
+    block_on_fail: generated.register.block_on_fail,
+    generated_files: {
+      check: path.relative(path.resolve(__dirname, ".."), generated.filePath),
+      test: path.relative(path.resolve(__dirname, ".."), generated.testPath),
+    },
+    rollback_snapshot: path.relative(path.resolve(__dirname, ".."), rollback.snapshotDir),
+    rollback_files: rollback.files,
+    register: generated.register,
+  };
+  fs.writeFileSync(auditPath, JSON.stringify(audit, null, 2), "utf8");
+  return auditPath;
 }
 
 /**
@@ -208,8 +348,10 @@ export function generateCheck(fp) {
       agentType = "generic";
   }
 
-  const ruleId = fp.rule_id || fp.id;
+  const ruleId = ruleIdOf(fp);
   const fileName = `${ruleId}.mjs`;
+  const testFileName = `${ruleId}.test.mjs`;
+  const testCode = generateCompanionTest({ fp, ruleId, fileName, checkType, threshold });
 
   return {
     ruleId,
@@ -217,16 +359,22 @@ export function generateCheck(fp) {
     agentType,
     fileName,
     filePath: path.join(CHECKS_DIR, fileName),
+    testFileName,
+    testPath: path.join(TESTS_DIR, testFileName),
     code,
+    testCode,
     register: {
       id: ruleId,
       name: fp.category || ruleId,
       description: fp.description,
       auto_detect: true,
       check_fn: `preflight-checks.${ruleId}`,
-      block_on_fail: true,
+      enforcement: "observe",
+      isolation: true,
+      block_on_fail: false,
       origin_friction: fp.id,
       autopoiesis: true,
+      generated_test: `preflight-checks/__tests__/${testFileName}`,
     },
   };
 }
@@ -235,30 +383,50 @@ export function generateCheck(fp) {
  * 将生成的检查写入文件并注册到 push_rules.json
  */
 export function persistCheck(generated) {
-  // 1. 写入检查文件
+  const timestamp = timestampForPath();
+  const rollback = createRollbackSnapshot(generated, timestamp);
+
+  // 1. 写入检查文件和配套测试
   fs.mkdirSync(CHECKS_DIR, { recursive: true });
+  fs.mkdirSync(TESTS_DIR, { recursive: true });
   fs.writeFileSync(generated.filePath, generated.code, "utf8");
+  fs.writeFileSync(generated.testPath, generated.testCode, "utf8");
 
   // 2. 注册到 push_rules.json
   let rules = {};
   try {
     rules = JSON.parse(fs.readFileSync(RULES_PATH, "utf8"));
   } catch {
-    rules = { l1_mandatory_checks: {}, l2_warning_checks: {}, autopoiesis: {} };
+    rules = { l1_mandatory_checks: {}, l2_warning_checks: {}, observation_checks: {}, autopoiesis: {} };
   }
 
   if (!rules.l1_mandatory_checks) rules.l1_mandatory_checks = {};
+  if (!rules.observation_checks) rules.observation_checks = {};
 
-  // 避免重复注册
-  if (!rules.l1_mandatory_checks[generated.ruleId]) {
-    rules.l1_mandatory_checks[generated.ruleId] = generated.register;
+  let registeredLayer = "existing";
+  const l1Exists = Boolean(rules.l1_mandatory_checks[generated.ruleId]);
+  const observedExists = Boolean(rules.observation_checks[generated.ruleId]);
+
+  // 新生成规则默认进入 observation，不直接进入 L1。
+  if (!l1Exists && !observedExists) {
+    rules.observation_checks[generated.ruleId] = {
+      ...generated.register,
+      audit_required: true,
+      rollback_required: true,
+    };
     rules.autopoiesis = rules.autopoiesis || {};
     rules.autopoiesis.evolution_count = (rules.autopoiesis.evolution_count || 0) + 1;
     rules.autopoiesis.last_evolution = new Date().toISOString();
+    rules.autopoiesis.default_generated_enforcement = "observe";
+    rules.autopoiesis.generated_tests_required = true;
+    rules.autopoiesis.audit_required = true;
+    rules.autopoiesis.rollback_snapshots = true;
     fs.writeFileSync(RULES_PATH, JSON.stringify(rules, null, 2), "utf8");
+    registeredLayer = "observation_checks";
   }
 
-  return generated.filePath;
+  const auditPath = writeEvolutionAudit(generated, timestamp, rollback, registeredLayer);
+  return { checkPath: generated.filePath, testPath: generated.testPath, auditPath, rollbackSnapshot: rollback.snapshotDir, registeredLayer };
 }
 
 /**
@@ -270,8 +438,8 @@ export function generateChecksFromFrictionPoints(frictionPoints) {
     // 只处理有 description 且未被注册过的摩擦点
     if (!fp.description || fp.description === "undefined") continue;
     const generated = generateCheck(fp);
-    const persistedPath = persistCheck(generated);
-    results.push({ ruleId: generated.ruleId, type: generated.checkType, path: persistedPath });
+    const persisted = persistCheck(generated);
+    results.push({ ruleId: generated.ruleId, type: generated.checkType, ...persisted });
   }
   return results;
 }
@@ -288,6 +456,7 @@ function main() {
   const generated = generateCheck(testFp);
   console.log("Generated check type:", generated.checkType);
   console.log("Code:\n", generated.code);
+  console.log("Test:\n", generated.testCode);
   console.log("Register:", JSON.stringify(generated.register, null, 2));
 }
 

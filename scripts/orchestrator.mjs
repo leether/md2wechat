@@ -47,6 +47,7 @@ Optional:
   --qr <path>              QR code image path
   --dry-run                Run full pipeline but skip WeChat API push
   --auto-fix               Automatically fix L1 preflight failures
+  --skip-image-check       Skip pre_image_missing L1 check (for text-only articles)
   --open-comment <0|1>     Enable/disable comments (default: 1)
   --crop-235-1 <spec>      Cover crop spec (e.g. 0_0.0035_1_0.9965)
   --help                   Show this help
@@ -94,6 +95,17 @@ function readEnvVar(envPath, key) {
   } catch {
     return null;
   }
+}
+
+function shellQuote(value = "") {
+  return `'${String(value).replace(/'/g, "'\\''")}'`;
+}
+
+function formatLocalDateStamp(date = new Date()) {
+  const yyyy = String(date.getFullYear());
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}${mm}${dd}`;
 }
 
 // ── JSONL 日志 ──
@@ -171,10 +183,12 @@ class AutoHeal {
     this.mdPath = mdPath;
     this.logger = logger;
     this.fixesApplied = [];
+    this.unhandledFailures = [];
   }
 
   apply(preflightReport, htmlPath) {
     const failures = preflightReport?.l1?.failures || [];
+    const agentFailures = preflightReport?.agent?.failures || [];
     let needsReRender = false;
 
     for (const f of failures) {
@@ -193,45 +207,71 @@ class AutoHeal {
           if (fixed) {
             this.fixesApplied.push("images_compressed");
             needsReRender = true;
+          } else {
+            this.unhandledFailures.push(f.id);
           }
           break;
         }
         case "local_path_absence": {
           // 本地路径在渲染阶段是正常的（bundle 会替换为文件名）
           // 如果所有路径指向的文件都存在，则跳过
-          const paths = f.details?.paths || [];
+          const paths = f.details?.paths || this.extractImagePathsFromReport(f, htmlPath, { includeMissing: true });
           const allExist = paths.every((p) => fs.existsSync(p));
           if (allExist) {
             info(`AutoHeal: local_path_absence skipped — ${paths.length} image(s) exist, bundle will handle path replacement`);
           } else {
             warn(`AutoHeal: some local paths do not exist: ${paths.filter((p) => !fs.existsSync(p)).join(", ")}`);
+            this.unhandledFailures.push(f.id);
+          }
+          break;
+        }
+        case "image_cdn_count_match": {
+          // bundle 前 HTML 里出现本地图片是预期状态；只要文件都存在，bundle 会替换为文件名。
+          const paths = this.extractImagePathsFromReport(f, htmlPath, { includeMissing: true });
+          const allExist = paths.length > 0 && paths.every((p) => fs.existsSync(p));
+          if (allExist) {
+            info(`AutoHeal: image_cdn_count_match skipped — ${paths.length} local image(s) will be bundled`);
+          } else {
+            warn(`AutoHeal: image_cdn_count_match has missing or unresolved local images`);
+            this.unhandledFailures.push(f.id);
           }
           break;
         }
         case "title_length": {
           warn(`AutoHeal skipped: title_length requires human judgment`);
+          this.unhandledFailures.push(f.id);
           break;
         }
         default:
           warn(`AutoHeal: no automatic fix for ${f.id}`);
+          this.unhandledFailures.push(f.id);
       }
+    }
+
+    for (const f of agentFailures) {
+      warn(`AutoHeal: no automatic fix for agent failure ${f.id}`);
+      this.unhandledFailures.push(f.id || "agent_failure");
     }
 
     if (this.fixesApplied.length > 0) {
       this.logger.record("autofix", "applied", { fixes: this.fixesApplied });
     }
 
-    return { fixed: this.fixesApplied.length > 0, needsReRender };
+    return {
+      fixed: this.fixesApplied.length > 0,
+      needsReRender,
+      unhandledFailures: [...new Set(this.unhandledFailures)],
+    };
   }
 
-  extractImagePathsFromReport(failure, htmlPath) {
+  extractImagePathsFromReport(failure, htmlPath, { includeMissing = false } = {}) {
     if (!htmlPath || !fs.existsSync(htmlPath)) return [];
     const html = fs.readFileSync(htmlPath, "utf8");
     const paths = [];
     const regex = /src=["'](\/[^"']+)["']/g;
     let m;
     while ((m = regex.exec(html)) !== null) {
-      if (fs.existsSync(m[1])) paths.push(m[1]);
+      if (includeMissing || fs.existsSync(m[1])) paths.push(m[1]);
     }
     return paths;
   }
@@ -340,13 +380,15 @@ function preRenderLint(mdPath, titleArg) {
 }
 function parsePreflightReport(stdout) {
   try {
-    // 尝试从 stdout 的最后几行找 JSON
-    const lines = stdout.split("\n").filter((l) => l.trim());
-    for (let i = lines.length - 1; i >= 0; i--) {
-      try {
-        return JSON.parse(lines[i]);
-      } catch {
-        continue;
+    const trimmed = String(stdout || "").trim();
+    if (!trimmed) return null;
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      const start = trimmed.indexOf("{");
+      const end = trimmed.lastIndexOf("}");
+      if (start !== -1 && end > start) {
+        return JSON.parse(trimmed.slice(start, end + 1));
       }
     }
   } catch {
@@ -376,6 +418,7 @@ function main() {
   const openComment = args["open-comment"] !== undefined ? args["open-comment"] : "1";
   const cropSpec = args["crop-235-1"];
   const autoPush = args["auto-push"] || false;
+  const skipImageCheck = args["skip-image-check"] || false;
 
   if (!fs.existsSync(inputPath)) {
     err(`Input file not found: ${inputPath}`);
@@ -436,6 +479,8 @@ function main() {
     "--lint-report-out", lintOut,
   ];
   if (title) renderArgs.push("--title", title);
+  if (thumbImage) renderArgs.push("--preflight-cover", thumbImage);
+  if (skipImageCheck) renderArgs.push("--skip-image-check");
 
   const renderResult = run(
     path.join(PIPELINE_HOME, "scripts", "render_wechat_editorial.mjs"),
@@ -451,7 +496,13 @@ function main() {
 
     const preflightJsonResult = run(
       path.join(PIPELINE_HOME, "harness", "preflight.mjs"),
-      ["--html", renderOut, "--md", inputPath, "--json"],
+      [
+        "--html", renderOut,
+        "--md", inputPath,
+        ...(thumbImage ? ["--cover", thumbImage] : []),
+        ...(skipImageCheck ? ["--skip-image-check"] : []),
+        "--json",
+      ],
       logger,
       "preflight_json",
     );
@@ -461,7 +512,12 @@ function main() {
     if (autoFix && report) {
       info("Attempting AutoHeal...");
       const healer = new AutoHeal(inputPath, logger);
-      const { fixed, needsReRender } = healer.apply(report, renderOut);
+      const { fixed, needsReRender, unhandledFailures } = healer.apply(report, renderOut);
+
+      if (unhandledFailures.length > 0) {
+        err(`AutoHeal could not fix: ${unhandledFailures.join(", ")}. Manual intervention required.`);
+        return 3;
+      }
 
       if (fixed && needsReRender) {
         info("Re-running render after AutoHeal...");
@@ -476,13 +532,9 @@ function main() {
           return 3;
         }
         ok("Render succeeded after AutoHeal");
-      } else if (!fixed && report?.l1?.failures?.some((f) => f.id !== "local_path_absence")) {
-        err("AutoHeal could not fix all L1 issues. Manual intervention required.");
-        return 3;
       } else {
-        // 只有 local_path_absence 且都被跳过，继续到 bundle 阶段
-        ok("AutoHeal: only local_path_absence (will be handled by bundle), continuing...");
-        logger.record("render", "healed", { reason: "local_path_absence_skipped_for_bundle" });
+        ok("AutoHeal: remaining preflight failures are bundle-safe, continuing...");
+        logger.record("render", "healed", { reason: "bundle_safe_preflight_failures" });
       }
     } else {
       err("Preflight blocked. Use --auto-fix to attempt automatic repair, or fix manually.");
@@ -506,6 +558,7 @@ function main() {
     "--lint", lintOut,
   ];
   if (qrPath) bundleArgs.push("--qr", qrPath);
+  if (thumbImage) bundleArgs.push("--thumb-image", thumbImage);
   if (fs.existsSync(envPath)) bundleArgs.push("--env", envPath);
 
   const bundleResult = run(
@@ -523,11 +576,11 @@ function main() {
   ok(`Bundle ready: ${outDir}`);
 
   // 读取 bundle manifest
-  const manifestPath = path.join(outDir, "manifest.json");
+  const manifestPath = path.join(outDir, "bundle-manifest.json");
   let manifest = null;
   if (fs.existsSync(manifestPath)) {
     manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-    info(`Bundle contains ${manifest.images?.length || 0} images`);
+    info(`Bundle contains ${manifest.manifest?.images?.length || 0} inline images`);
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -548,7 +601,8 @@ function main() {
 
     const relayHost = readEnvVar(envPath, "WECHAT_RELAY_HOST") || "relay";
     const relayRoot = readEnvVar(envPath, "WECHAT_RELAY_PUBLISH_ROOT") || `/home/admin/wechat-publish`;
-    let remoteDir = `${relayRoot}/${account}/$(date +%Y%m%d)_${slug}/v1`;
+    const dateStamp = formatLocalDateStamp();
+    let remoteDir = `${relayRoot}/${account}/${dateStamp}_${slug}/v1`;
 
     if (autoPush) {
       step(3, "Push to WeChat Draft (AUTO)");
@@ -556,16 +610,17 @@ function main() {
 
       // 查询已有版本号并递增
       info("Checking existing versions on relay...");
-      const verResult = spawnSync("ssh", [relayHost, `ls -d ${relayRoot}/${account}/$(date +%Y%m%d)_${slug}/v* 2>/dev/null | wc -l | tr -d ' '`], { encoding: "utf8", stdio: "pipe" });
+      const articleDir = `${relayRoot}/${account}/${dateStamp}_${slug}`;
+      const verResult = spawnSync("ssh", [relayHost, `ls -d ${shellQuote(articleDir)}/v* 2>/dev/null | wc -l | tr -d ' '`], { encoding: "utf8", stdio: "pipe" });
       const existingVers = parseInt(verResult.stdout?.trim() || "0", 10) || 0;
       const nextVer = existingVers + 1;
-      remoteDir = `${relayRoot}/${account}/$(date +%Y%m%d)_${slug}/v${nextVer}`;
+      remoteDir = `${articleDir}/v${nextVer}`;
       info(`Next version: v${nextVer} (${existingVers} existing)`);
 
       info(`Remote dir: ${remoteDir}`);
 
       info("Creating remote directory...");
-      const mkdirResult = spawnSync("ssh", [relayHost, `mkdir -p ${remoteDir}`], { encoding: "utf8", stdio: "pipe" });
+      const mkdirResult = spawnSync("ssh", [relayHost, `mkdir -p ${shellQuote(remoteDir)}`], { encoding: "utf8", stdio: "pipe" });
       if (mkdirResult.status !== 0) {
         err(`SSH mkdir failed: ${mkdirResult.stderr || mkdirResult.stdout}`);
         logger.record("push", "failed", { reason: "ssh_mkdir_failed", stderr: mkdirResult.stderr });
@@ -592,9 +647,12 @@ function main() {
       }
 
       info("Executing create_wechat_draft.mjs on relay...");
+      const remoteTitle = title || slug;
+      const remoteThumbArg = thumbImage ? ` --thumb-image ${shellQuote(path.basename(thumbImage))}` : "";
+      const remoteCropArg = cropSpec ? ` --crop-235-1 ${shellQuote(cropSpec)}` : "";
       const remoteCmd = [
         relayHost,
-        `cd ${remoteDir} && node ${relayRoot}/${account}/shared/scripts/create_wechat_draft.mjs --html ${path.basename(renderOut)} ${thumbImage ? `--thumb-image ${path.basename(thumbImage)}` : ""} --lint-report ${path.basename(lintOut)} --title '\${title || slug}' --author '\${author}' --account ${account} --open-comment ${openComment}`,
+        `cd ${shellQuote(remoteDir)} && node ${shellQuote(`${relayRoot}/${account}/shared/scripts/create_wechat_draft.mjs`)} --html ${shellQuote(path.basename(renderOut))}${remoteThumbArg} --lint-report ${shellQuote(path.basename(lintOut))} --title ${shellQuote(remoteTitle)} --author ${shellQuote(author)} --account ${shellQuote(account)} --open-comment ${shellQuote(openComment)}${remoteCropArg}`,
       ];
       const pushResult = spawnSync("ssh", remoteCmd, { encoding: "utf8", stdio: "pipe", maxBuffer: 1024 * 1024 });
 
@@ -628,13 +686,31 @@ function main() {
 
     } else {
       step(3, "Push to WeChat Draft (MANUAL)");
-      const pushCmd = `ssh ${relayHost} "mkdir -p ${remoteDir}" && \scp ${outDir}/* ${relayHost}:${remoteDir}/ && \ssh ${relayHost} "cd ${remoteDir} && \  node ${relayRoot}/${account}/shared/scripts/create_wechat_draft.mjs \  --html ${path.basename(renderOut)} \  ${thumbImage ? `--thumb-image ${path.basename(thumbImage)}` : ""} \  --lint-report ${path.basename(lintOut)} \  --title '\${title || slug}' \  --author '\${author}' \  --account ${account} \  --open-comment ${openComment}"`;
+      const manualTitle = title || slug;
+      const manualScript = `${relayRoot}/${account}/shared/scripts/create_wechat_draft.mjs`;
+      const remoteDraftCmd = [
+        `cd ${shellQuote(remoteDir)} && node ${shellQuote(manualScript)}`,
+        `--html ${shellQuote(path.basename(renderOut))}`,
+        `--lint-report ${shellQuote(path.basename(lintOut))}`,
+        `--title ${shellQuote(manualTitle)}`,
+        `--author ${shellQuote(author)}`,
+        `--account ${shellQuote(account)}`,
+        `--open-comment ${shellQuote(openComment)}`,
+        ...(thumbImage ? [`--thumb-image ${shellQuote(path.basename(thumbImage))}`] : []),
+        ...(cropSpec ? [`--crop-235-1 ${shellQuote(cropSpec)}`] : []),
+      ].join(" ");
 
       info("Push command (copy to terminal):");
       const envInBundle = fs.existsSync(path.join(outDir, ".env"));
+      const pushCommands = [
+        `ssh ${shellQuote(relayHost)} ${shellQuote(`mkdir -p ${shellQuote(remoteDir)}`)}`,
+        `scp ${shellQuote(outDir)}/* ${shellQuote(`${relayHost}:${remoteDir}/`)}`,
+        ...(envInBundle ? [`scp ${shellQuote(path.join(outDir, ".env"))} ${shellQuote(`${relayHost}:${remoteDir}/.env`)}`] : []),
+        `ssh ${shellQuote(relayHost)} ${shellQuote(remoteDraftCmd)}`,
+      ];
+      const pushCmd = pushCommands.join(" && \\\n");
       if (envInBundle) {
-        warn("IMPORTANT: scp * does NOT copy hidden files. You must separately scp .env:");
-        console.log(`${C.yellow}  scp ${outDir}/.env ${relayHost}:${remoteDir}/.env${C.reset}\n`);
+        warn("IMPORTANT: scp * does NOT copy hidden files. The command below uploads .env separately.");
       }
       console.log(`\n${C.cyan}${pushCmd}${C.reset}\n`);
       logger.record("push", "command_generated", { command: pushCmd, envReminder: envInBundle });

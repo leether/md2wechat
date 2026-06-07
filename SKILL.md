@@ -88,19 +88,21 @@ ${NODE_PATH} ${PIPELINE_HOME}/scripts/orchestrator.mjs \
 | `--out-dir` | 自定义 bundle 输出目录 |
 | `--thumb-image` | 封面图路径 |
 | `--qr` | 二维码图片路径 |
+| `--skip-image-check` | 纯文本文章或紧急调试时显式跳过封面/插图 L1 检查 |
 
 ### 典型使用流程
 
 ```bash
 # 第一次：dry-run 验证
 ${NODE_PATH} ${PIPELINE_HOME}/scripts/orchestrator.mjs \
-  --input article.md --account XINZHE --auto-fix --dry-run
+  --input article.md --account XINZHE --thumb-image cover.png --auto-fix --dry-run
 
 # 确认无问题后，--auto-push 自动完成推送（无需手动复制命令）
 ${NODE_PATH} ${PIPELINE_HOME}/scripts/orchestrator.mjs \
-  --input article.md --account XINZHE --auto-fix --auto-push
+  --input article.md --account XINZHE --thumb-image cover.png --auto-fix --auto-push
 
 # 如果不想自动推送，去掉 --auto-push，orchestrator 会输出命令供手动执行
+# 如果确认为纯文本文章，可显式加 --skip-image-check；不要依赖隐式跳过
 ```
 
 ### 结构化日志
@@ -401,9 +403,9 @@ ${NODE_PATH} ${PIPELINE_HOME}/scripts/render_wechat_editorial.mjs \
 
 | 层级 | 性质 | 检查项 |
 |------|------|--------|
-| **L1 硬阻塞** | 失败阻断上传 | digest ≤128 字符、标题 ≤32 字符、作者 ≤16 字符、HTML 无本地绝对路径残留、所有图片 ≤2MB、HTML 无 position/filter |
+| **L1 硬阻塞** | 失败阻断上传 | digest ≤128 字符、标题 ≤32 字符、作者 ≤16 字符、HTML 无本地绝对路径残留、所有图片 ≤2MB、HTML 无 position/filter、封面/正文插图完整性（可显式逃逸） |
 | **L2 警告** | 失败输出警告，不阻断 | 内容字符数 ≥20000、内容字节数 ≥1MB、封面比例偏离 2.35:1、summary 缺少数据点 |
-| **L3 人工确认** | 部分自动 + 人工清单 | CTA 完整性、卡片渲染数与 MD 一致、表格渲染数与 MD 一致、图片路径规范化 |
+| **L3 人工确认** | 人工复核 | 原文观点支撑、文化升维、同理心、最终草稿视觉检查 |
 
 **L1 有任何一项失败，就必须修复后再进入 Step 2。** 这是本次改造的核心——把返工成本从「relay 后」降到「本地」。
 
@@ -429,13 +431,13 @@ preflight 报告示例（L1 失败）：
 
 ### 封面图（推送时必须，无图会自动生成占位图）
 
-**优先级**：命令行 `--thumb-image` > `IMAGE_GEN_CLI` 自动生成 > 手动准备 > 纯色占位图
+**优先级**：命令行 `--thumb-image` > 手动调用 `IMAGE_GEN_CLI` 生成 > 手动准备 > 底层脚本纯色占位图（仅调试）
 
 | 模式 | 触发条件 | 行为 |
 |------|----------|------|
-| **自动生成** | `.env` 中配了 `IMAGE_GEN_CLI` | 调用 CLI 生成封面图（如 Dreamina） |
+| **自动生成** | `.env` 中配了 `IMAGE_GEN_CLI` | 预留配置；当前由执行者按下方命令手动调用 CLI 产出图片 |
 | **手动准备** | 未配 `IMAGE_GEN_CLI`，但提供了 `--thumb-image` | 用你准备的任意图片 |
-| **占位图 fallback** | 都没提供 | 自动生成 900×383 纯色 PNG（`#1a1a2e`），建议在微信后台替换 |
+| **占位图 fallback** | 直接调用底层 `create_wechat_draft.mjs` 且都没提供 | 自动生成 900×383 纯色 PNG（`#1a1a2e`），仅建议调试 |
 
 **自动生成模式**（`IMAGE_GEN_CLI` 已配置）：
 
@@ -461,7 +463,7 @@ curl -L -o <输出路径>/cover.png "<返回的 image_url>"
 
 ### 正文插图（可选，无图就不插）
 
-用 `:::wechat-image` 在文章中嵌入插图。**不需要 fallback**——没有插图的文章一样正常渲染和推送。
+用 `:::wechat-image` 在文章中嵌入插图。渲染阶段可无插图；完整发布管线默认要求至少 1 张正文插图，纯文本文章需显式 `--skip-image-check` 或 Markdown frontmatter `no_image: true`。
 
 ```markdown
 :::wechat-image
@@ -471,7 +473,7 @@ caption: 图片说明
 :::
 ```
 
-如果配了 `IMAGE_GEN_CLI`，正文插图也可以自动生成（跟封面图同一个 CLI）。
+如果配了 `IMAGE_GEN_CLI`，正文插图也可以用同一个 CLI 手动生成后写入 Markdown。
 渲染时脚本会自动将本地图片上传至微信 CDN，替换为 `mmbiz.qpic.cn` URL。
 
 ### ⚠️ 图片大小限制
@@ -859,9 +861,12 @@ console.log(\"cards:\", (content.match(/border-radius:22px/g)||[]).length);
 | 写作规则 | `${PIPELINE_HOME}/references/khazix-writer/rules.json` |
 | **本地 preflight** | `${PIPELINE_HOME}/harness/preflight.mjs`（渲染器自动调用，L1/L2/L3 本地拦截） |
 | **自动 bundle** | `${PIPELINE_HOME}/scripts/bundle_wechat_article.mjs`（Step 2.5，路径替换+打包） |
-| **质检规则** | `${PIPELINE_HOME}/harness/push_rules.json`（L1/L2/L3 规则定义，可被 self_report 扩展） |
+| **质检规则** | `${PIPELINE_HOME}/harness/push_rules.json`（L1/L2/Observation 规则定义；self_report 新规则默认进观察层） |
 | **活记忆器官** | `${PIPELINE_HOME}/docs/LESSONS_LEARNED.md`（摩擦点历史，YAML frontmatter + Markdown） |
 | **self_report** | `${PIPELINE_HOME}/harness/self_report.mjs`（摩擦点捕获→规则演化→活记忆更新） |
+| **规则演化审计** | `${PIPELINE_HOME}/docs/evolution-audit/`（每次生成规则的审计记录） |
+| **规则回滚快照** | `${PIPELINE_HOME}/harness/evolution-snapshots/`（生成前的回滚点） |
+| **生成规则测试** | `${PIPELINE_HOME}/harness/preflight-checks/__tests__/`（每个生成规则必须有配套测试） |
 | 凭据 | `${PIPELINE_HOME}/.env`（WECHAT\_\<ACCOUNT\>\_APP\_ID/SECRET） |
 | 二维码 | `.env` 中 `FOOTER_QR_PATH` 指定的图片（本地放 `assets/qr.png`，开源用户可自行替换或不配） |
 | 作者 | 按你的公众号填写 |
@@ -890,7 +895,7 @@ console.log(\"cards:\", (content.match(/border-radius:22px/g)||[]).length);
 
 ## 已知坑与教训（活记忆器官）
 
-> **md2wechat 现在是有「免疫系统」的 SKILL。** 所有历史摩擦点记录在 `docs/LESSONS_LEARNED.md`（活记忆器官），质检规则定义在 `harness/push_rules.json`（三层规则体系）。发现新坑时，用 `harness/self_report.mjs` 自动捕获并编码进规则，下次运行自动拦截。
+> **md2wechat 现在是有「免疫系统」的 SKILL。** 所有历史摩擦点记录在 `docs/LESSONS_LEARNED.md`（活记忆器官），质检规则定义在 `harness/push_rules.json`。发现新坑时，用 `harness/self_report.mjs` 自动捕获并编码进观察层规则；生成规则必须带测试、审计记录和回滚快照。观察层失败只报告不阻断，人工审查后才可提升为 L1。
 
 ### 活记忆器官使用方式
 
@@ -900,6 +905,9 @@ ${NODE_PATH} ${PIPELINE_HOME}/harness/self_report.mjs \
   --capture f030 --category "渲染" \
   --description "新发现的问题" --resolution "修复方案" \
   --auto-encode --write-lessons
+
+# 运行生成规则配套测试
+${NODE_PATH} ${PIPELINE_HOME}/harness/run-generated-check-tests.mjs
 
 # 查看完整历史教训
 # 打开 docs/LESSONS_LEARNED.md（YAML frontmatter + Markdown 正文）
@@ -920,5 +928,7 @@ ${NODE_PATH} ${PIPELINE_HOME}/harness/self_report.mjs \
 ### 完整历史记录
 
 - **人类可读**：`docs/LESSONS_LEARNED.md`（按类别分组，含描述/解决/关联规则）
-- **机器可读**：`harness/push_rules.json`（L1/L2/L3 检查项定义，可被 self_report 动态扩展）
+- **机器可读**：`harness/push_rules.json`（L1/L2/Observation 检查项定义；新生成规则默认 observation）
+- **演化审计**：`docs/evolution-audit/*.json`（生成文件、注册层、回滚快照位置）
+- **回滚点**：`harness/evolution-snapshots/*/push_rules.before.json`
 - **摩擦点列表**：`docs/LESSONS_LEARNED.md` frontmatter 中的 `friction_points` 数组（YAML 格式）

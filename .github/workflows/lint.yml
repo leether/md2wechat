@@ -6,10 +6,14 @@ on:
     paths:
       - 'SKILL.md'
       - 'scripts/**'
+      - 'harness/**'
+      - 'package.json'
   pull_request:
     paths:
       - 'SKILL.md'
       - 'scripts/**'
+      - 'harness/**'
+      - 'package.json'
 
 jobs:
   validate:
@@ -30,6 +34,11 @@ jobs:
 
       - name: Lint scripts syntax
         run: |
-          for f in scripts/*.mjs scripts/lib/*.mjs; do
+          for f in $(find scripts harness -name '*.mjs' -print | sort); do
             node --check "$f" && echo "✅ $f" || exit 1
           done
+
+      - name: Run generated check tests
+        run: |
+          node harness/test-code-generator-contract.mjs
+          node harness/run-generated-check-tests.mjs

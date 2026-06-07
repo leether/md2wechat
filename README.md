@@ -80,6 +80,7 @@ node scripts/orchestrator.mjs \
   --input examples/sample-article.md \
   --account YOUR_ACCOUNT \
   --author "你的名字" \
+  --thumb-image cover.png \
   --auto-fix \
   --auto-push
 
@@ -87,8 +88,10 @@ node scripts/orchestrator.mjs \
 node scripts/render_wechat_editorial.mjs \
   --input examples/sample-article.md \
   --output /tmp/article.html \
-  --env .env
+  --env .env \
+  --no-preflight
 # ⚠️ --env 必须显式指定，否则 footer 不会注入
+# 渲染语法预览可用 --no-preflight；进入发布管线时请提供封面并跑 preflight
 
 node scripts/create_wechat_draft.mjs \
   --html /tmp/article.html \
@@ -135,6 +138,7 @@ node scripts/orchestrator.mjs \
   --account YOUR_ACCOUNT \
   --title "文章标题" \
   --author "作者名" \
+  --thumb-image cover.png \
   --auto-fix \
   --auto-push
 ```
@@ -153,6 +157,7 @@ Orchestrator 自动执行的步骤：
 | 8. 自动 self_report | ✅ | 分析日志，自动捕获新摩擦点，更新 `docs/LESSONS_LEARNED.md` |
 
 首次建议加 `--dry-run` 验证流程；不想自动推送就去掉 `--auto-push`，orchestrator 会输出手动命令。
+正文确认为纯文本或临时不做插图时，可显式加 `--skip-image-check`；不要依赖隐式跳过。
 
 ### Step 1：渲染 HTML
 
@@ -184,13 +189,14 @@ node scripts/render_wechat_editorial.mjs \
 
 | 模式 | 触发条件 | 行为 |
 |------|----------|------|
-| 自动生成 | `.env` 配了 `IMAGE_GEN_CLI` | 调用 CLI 生成（如 Dreamina） |
+| 自动生成 | `.env` 配了 `IMAGE_GEN_CLI` | 预留配置；当前需按 SKILL.md 手动调用 CLI 产出图片 |
 | 手动准备 | 未配 CLI，但提供了 `--thumb-image` | 用你准备的任意图片 |
-| 占位图 fallback | 都没提供 | 自动生成 900×383 纯色 PNG，建议微信后台替换 |
+| 占位图 fallback | 直接调用底层 `create_wechat_draft.mjs` 且都没提供 | 自动生成 900×383 纯色 PNG，建议仅作调试 |
 
-**正文插图**（可选，无图就不插）：
+**正文插图**（渲染可选，发布管线默认要求至少 1 张）：
 
-在 Markdown 中用 `![alt](url)` 或 `:::wechat-image` 嵌入，本地图片会被自动上传至微信 CDN。不需要 fallback——没有插图的文章一样正常。
+在 Markdown 中用 `![alt](url)` 或 `:::wechat-image` 嵌入，本地图片会在推送阶段上传至微信 CDN。
+完整发布管线会用 `pre_image_missing` 检查封面和正文插图；确认为纯文本文章时，加 `--skip-image-check` 或在 Markdown frontmatter 写 `no_image: true`。
 
 **方式一：标准 Markdown 图片语法**（简洁，推荐）
 
@@ -436,6 +442,10 @@ md2wechat/                          # 仓库 = 可安装的 WorkBuddy Skill
 │   ├── preflight.mjs                 # 推送前检查（含 L3 人工程序清单）
 │   ├── push_rules.json               # 检查规则配置
 │   ├── self_report.mjs               # 自动复盘、摩擦点捕获
+│   ├── code-generator.mjs            # 生成观察层检查、配套测试、审计和回滚快照
+│   ├── run-generated-check-tests.mjs  # 运行生成规则的配套测试
+│   ├── preflight-checks/              # 生成的观察层检查和 __tests__
+│   ├── evolution-snapshots/           # evolution 前状态快照（回滚点）
 │   └── memory-loader.mjs             # 活记忆加载器
 ├── references/khazix-writer/         # 写作指南和规则（MIT License）
 │   ├── SKILL.md                      # 原版写作指南
@@ -449,6 +459,7 @@ md2wechat/                          # 仓库 = 可安装的 WorkBuddy Skill
 │   └── sample-article.md             # 示例文章
 ├── docs/
 │   ├── wechat-html-compliance.md     # 微信 HTML 合规详解
+│   ├── evolution-audit/              # 每次规则演化的审计 JSON
 │   └── LESSONS_LEARNED.md            # 运行时活记忆（运行时加载）
 ├── assets/                           # 放你的二维码等资源
 ├── .env.example                      # 环境变量模板
@@ -480,8 +491,8 @@ export PIPELINE_HOME=/path/to/md2wechat
 - **CTA 护栏**：文章含 CTA 信号（总结/结语/扫码关键词）但未配置 footer 时，输出警告（不阻止渲染）。配了 `.env` 的 `FOOTER_QR_PATH` 则自动附加
 - **IP 环境护栏**：在 `.env` 中配置 `WECHAT_PUBLISH_ALLOWED_HOSTS` / `WECHAT_PUBLISH_ALLOWED_IPS`，非白名单环境阻止推送
 - **写作质检护栏**：L1 规则违规阻止渲染，不会带着 AI 味文章上线
-- **叙事视角护栏**（L3）：preflight 检测正文中 AI 视角表述（如"用户问我"），产出人工程序清单，防止文章主语漂移
-- **封面占位文字护栏**（L3）：preflight 强制要求人工确认封面图无占位文字，避免带提示词的封面被推上线
+- **叙事视角护栏**（L1）：preflight 检测正文中 AI 视角表述（如"用户问我"），防止文章主语漂移
+- **封面/插图护栏**（L1）：preflight 检测封面、正文插图和占位图痕迹；纯文本文章需显式逃逸
 - **合规核查护栏**（Step 5）：skill-compliance-harness 强制逐项核验 Audit Log，任何一项不通过不得汇报完成
 
 ## 交流群

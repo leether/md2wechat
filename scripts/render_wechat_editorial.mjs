@@ -1396,6 +1396,8 @@ function main(argv = process.argv.slice(2)) {
       "  --no-geo-lint          Skip GEO compliance lint (summary/structure/AI-readability)",
       "  --strict-geo           Treat GEO L2 warnings as errors",
       "  --no-preflight         Skip local preflight after rendering (not recommended)",
+      "  --preflight-cover <path> Cover image path forwarded to local preflight",
+      "  --skip-image-check     Skip pre_image_missing in local preflight",
       "  --lint-report-out <path> Write structured lint results to JSON file",
       "  --help                 Show help",
     ]);
@@ -1563,9 +1565,16 @@ function main(argv = process.argv.slice(2)) {
     const preflightScript = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../harness/preflight.mjs");
     if (fs.existsSync(preflightScript)) {
       console.log("\n🔍 自动调用本地 preflight...");
+      const preflightArgs = [preflightScript, "--html", outputPath, "--md", absoluteInput, "--json"];
+      if (args["preflight-cover"]) {
+        preflightArgs.push("--cover", path.resolve(process.cwd(), String(args["preflight-cover"])));
+      }
+      if (args["skip-image-check"]) {
+        preflightArgs.push("--skip-image-check");
+      }
       const preflightResult = spawnSync(
         process.execPath,
-        [preflightScript, "--html", outputPath, "--md", absoluteInput, "--json"],
+        preflightArgs,
         { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
       );
       let preflightReport;

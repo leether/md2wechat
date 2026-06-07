@@ -108,6 +108,129 @@ function extractFrontmatter(mdPath) {
   return fm;
 }
 
+function stripInlineCode(line) {
+  return line.replace(/`[^`]*`/g, "");
+}
+
+function markdownContentLines(md) {
+  const result = [];
+  let inFence = false;
+  for (const line of md.split("\n")) {
+    if (line.trim().startsWith("```")) {
+      inFence = !inFence;
+      result.push({ line, inFence: true });
+      continue;
+    }
+    result.push({ line, inFence });
+  }
+  return result;
+}
+
+function countWechatCardDirectives(md) {
+  let count = 0;
+  for (const { line, inFence } of markdownContentLines(md)) {
+    if (inFence) continue;
+    if (/^:::\s*wechat-card(?:\s|$)/.test(stripInlineCode(line).trim())) {
+      count++;
+    }
+  }
+  return count;
+}
+
+function countMarkdownTables(md) {
+  const lines = markdownContentLines(md);
+  let count = 0;
+  let inCard = false;
+
+  for (let i = 0; i < lines.length - 1; i++) {
+    const current = lines[i];
+    if (current.inFence) continue;
+
+    const trimmed = stripInlineCode(current.line).trim();
+    if (/^:::\s*wechat-card(?:\s|$)/.test(trimmed)) {
+      inCard = true;
+      continue;
+    }
+    if (trimmed === ":::") {
+      inCard = false;
+      continue;
+    }
+    if (inCard) continue;
+
+    const next = lines[i + 1];
+    if (next?.inFence) continue;
+    const nextTrimmed = stripInlineCode(next.line).trim();
+    const isHeader = /^\|.*\|$/.test(trimmed);
+    const isSeparator = /^\|\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(nextTrimmed);
+    if (isHeader && isSeparator) {
+      count++;
+      i += 1;
+      while (i + 1 < lines.length) {
+        const row = stripInlineCode(lines[i + 1].line).trim();
+        if (!/^\|.*\|$/.test(row)) break;
+        i++;
+      }
+    }
+  }
+
+  return count;
+}
+
+function generatedCheckFunctionName(ruleId) {
+  return `check_${String(ruleId).replace(/[^a-zA-Z0-9_$]/g, "_")}`;
+}
+
+function isGeneratedCheckRule(rule) {
+  return typeof rule?.check_fn === "string" && rule.check_fn.startsWith("preflight-checks.");
+}
+
+async function runGeneratedCheck(ruleId, rule, checksDir, context, enforcement = "observe") {
+  const safeRuleId = String(ruleId).replace(/[^a-zA-Z0-9_]/g, "_");
+  const fileName = `${safeRuleId}.mjs`;
+  const filePath = path.join(checksDir, fileName);
+  const level = enforcement === "block" ? "L1" : "OBSERVATION";
+
+  if (!fs.existsSync(filePath)) {
+    return {
+      passed: false,
+      level,
+      enforcement,
+      id: ruleId,
+      message: `Generated check file missing: ${fileName}`,
+    };
+  }
+
+  try {
+    const mod = await import(filePath);
+    const fnName = generatedCheckFunctionName(ruleId);
+    const fn = mod[fnName] || mod[`check_${ruleId}`];
+    if (!fn) {
+      return {
+        passed: false,
+        level,
+        enforcement,
+        id: ruleId,
+        message: `Generated check function missing: ${fnName}`,
+      };
+    }
+    const result = fn(context);
+    return {
+      ...result,
+      id: result.id || ruleId,
+      level: enforcement === "block" ? "L1" : (result.level || level),
+      enforcement,
+    };
+  } catch (e) {
+    return {
+      passed: false,
+      level,
+      enforcement,
+      id: ruleId,
+      message: `Generated check failed to run: ${e.message}`,
+    };
+  }
+}
+
 // ── 获取图片尺寸（macOS sips / Linux file） ──
 function getImageDimensions(imagePath) {
   try {
@@ -389,7 +512,7 @@ function checkCardCount(html, mdPath, rules) {
   let mdCardCount = 0;
   if (mdPath && fs.existsSync(mdPath)) {
     const md = fs.readFileSync(mdPath, "utf8");
-    mdCardCount = (md.match(/:::\s*wechat-card/g) || []).length;
+    mdCardCount = countWechatCardDirectives(md);
   }
   if (mdPath && mdCardCount > 0 && htmlCardCount !== mdCardCount) {
     return {
@@ -409,17 +532,7 @@ function checkTableCount(html, mdPath, rules) {
   let mdTableCount = 0;
   if (mdPath && fs.existsSync(mdPath)) {
     const md = fs.readFileSync(mdPath, "utf8");
-    mdTableCount = (md.match(/^\|.*\|.*\|/gm) || []).length;
-    // 排除卡片内部的表格（会被静默忽略）
-    const lines = md.split("\n");
-    let inCard = false;
-    let cardTableCount = 0;
-    for (const line of lines) {
-      if (line.trim().startsWith(":::wechat-card")) inCard = true;
-      if (line.trim() === ":::") inCard = false;
-      if (inCard && line.trim().startsWith("|")) cardTableCount++;
-    }
-    mdTableCount -= cardTableCount;
+    mdTableCount = countMarkdownTables(md);
   }
   if (mdPath && mdTableCount > 0 && htmlTableCount !== mdTableCount) {
     return {
@@ -691,23 +804,25 @@ export async function runPreflight(opts) {
 
   // ── 动态加载生成的检查（代码驱动自创生）──
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-  const checksDir = path.join(scriptDir, "preflight-checks");
+  const checksDir = path.join(path.dirname(rulesFile), "preflight-checks");
+  const generatedContext = { html, mdPath, htmlDir, coverPath, title, author, digest };
+  const observationChecks = [];
   if (fs.existsSync(checksDir)) {
-    const checkFiles = fs.readdirSync(checksDir).filter((f) => f.endsWith(".mjs"));
-    for (const file of checkFiles) {
-      const ruleId = file.replace(".mjs", "");
-      // 跳过已在内置检查中注册的（避免重复）
-      if (rules.l1_mandatory_checks && rules.l1_mandatory_checks[ruleId]) {
-        try {
-          const mod = await import(path.join(checksDir, file));
-          const fnName = `check_${ruleId}`;
-          if (mod[fnName]) {
-            const result = mod[fnName]({ html, mdPath, htmlDir, coverPath, title, author, digest });
-            l1Checks.push(result);
-          }
-        } catch (e) {
-          console.error(`⚠️  Failed to load generated check ${file}: ${e.message}`);
-        }
+    for (const [ruleId, rule] of Object.entries(rules.l1_mandatory_checks || {})) {
+      if (ruleId.startsWith("_") || !isGeneratedCheckRule(rule)) continue;
+      l1Checks.push(await runGeneratedCheck(ruleId, rule, checksDir, generatedContext, "block"));
+    }
+
+    for (const [ruleId, rule] of Object.entries(rules.observation_checks || {})) {
+      if (ruleId.startsWith("_") || !isGeneratedCheckRule(rule)) continue;
+      const result = await runGeneratedCheck(ruleId, rule, checksDir, generatedContext, "observe");
+      observationChecks.push({
+        ...result,
+        observed: true,
+        block_on_fail: false,
+      });
+      if (!result.passed) {
+        console.error(`⚠️  Observation check finding ${ruleId}: ${result.message || "failed"}`);
       }
     }
   }
@@ -731,6 +846,7 @@ export async function runPreflight(opts) {
   const memoryItems = formatL3MemoryItems(memory);
   const l1Failures = l1Checks.filter((c) => !c.passed);
   const l2Warnings = l2Checks.filter((c) => !c.passed);
+  const observationFindings = observationChecks.filter((c) => !c.passed);
   const agentFailures = agentChecks.filter((c) => c && !c.passed);
 
   const ok = l1Failures.length === 0 && agentFailures.length === 0;
@@ -742,6 +858,13 @@ export async function runPreflight(opts) {
     mdPath,
     l1: { total: l1Checks.length, passed: l1Checks.length - l1Failures.length, failures: l1Failures },
     l2: { total: l2Checks.length, passed: l2Checks.length - l2Warnings.length, warnings: l2Warnings },
+    observation: {
+      total: observationChecks.length,
+      passed: observationChecks.length - observationFindings.length,
+      findings: observationFindings,
+      checks: observationChecks,
+      block_on_fail: false,
+    },
     agent: { total: agentChecks.length, passed: agentChecks.length - agentFailures.length, failures: agentFailures },
     memory: { loaded: memory.loaded, count: memory.total_friction_points, items: memoryItems },
     autopoiesis: rules.autopoiesis || {},
@@ -826,6 +949,16 @@ function formatReport(report) {
     lines.push(`  ⚠️  ${c.id}: ${c.message}`);
   }
   if (report.l2.warnings.length === 0) lines.push("  ✅ 无警告");
+
+  // Observation
+  if (report.observation && report.observation.total > 0) {
+    lines.push(`【Observation 观察层】${report.observation.passed}/${report.observation.total}`);
+    for (const c of report.observation.findings) {
+      lines.push(`  ⚠️  ${c.id}: ${c.message || "Observation finding"}`);
+    }
+    if (report.observation.findings.length === 0) lines.push("  ✅ 无观察项失败");
+    lines.push("  注：Observation 失败不阻断发布，需人工审查后才可提升为 L1。");
+  }
 
   // Agent
   if (report.agent && report.agent.total > 0) {

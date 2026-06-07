@@ -35,6 +35,7 @@ Required:
 Optional:
   --lint <path>            Lint report JSON to include in bundle
   --qr <path>              QR code image to include in bundle
+  --thumb-image <path>     Cover image to include in bundle
   --env <path>             .env file to include in bundle
   --help                   Show this help
 
@@ -168,6 +169,13 @@ function main() {
     const qrDest = path.join(outDir, path.basename(args.qr));
     fs.copyFileSync(args.qr, qrDest);
     manifest.extras.push({ file: path.basename(args.qr), type: "qr" });
+  }
+
+  // 复制封面图
+  if (args["thumb-image"] && fs.existsSync(args["thumb-image"])) {
+    const thumbDest = path.join(outDir, path.basename(args["thumb-image"]));
+    fs.copyFileSync(args["thumb-image"], thumbDest);
+    manifest.extras.push({ file: path.basename(args["thumb-image"]), type: "thumb" });
   }
 
   // 复制 .env
