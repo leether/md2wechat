@@ -1,8 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 import { parseArgs, printHelp, requireArg } from "./lib/memory-lib.mjs";
 import { lintWritingQuality, formatReport as formatWritingReport } from "./lint_writing_quality.mjs";
+import { loadLivingMemory, formatRiskWarnings } from "../harness/memory-loader.mjs";
 
 // ── 轻量 .env 读取（与 create_wechat_draft.mjs 的 readEnvFile 一致） ──
 function readEnvFile(envPath) {
@@ -1393,6 +1395,7 @@ function main(argv = process.argv.slice(2)) {
       "  --strict-writing       Treat L2 warnings as errors",
       "  --no-geo-lint          Skip GEO compliance lint (summary/structure/AI-readability)",
       "  --strict-geo           Treat GEO L2 warnings as errors",
+      "  --no-preflight         Skip local preflight after rendering (not recommended)",
       "  --lint-report-out <path> Write structured lint results to JSON file",
       "  --help                 Show help",
     ]);
@@ -1407,6 +1410,13 @@ function main(argv = process.argv.slice(2)) {
 
   const outputPath = normalizeOutputPath(inputPath, args.output);
   const markdown = fs.readFileSync(absoluteInput, "utf8");
+
+  // ── 活记忆风险提示（自动加载历史教训） ──
+  const livingMemory = loadLivingMemory();
+  const riskWarnings = formatRiskWarnings(livingMemory);
+  if (riskWarnings) {
+    console.log(riskWarnings);
+  }
 
   // 初始化 lint 报告收集器
   const lintReport = {
@@ -1547,6 +1557,33 @@ function main(argv = process.argv.slice(2)) {
 
   // 写入结构化 lint 报告（供 create_wechat_draft.mjs 读取合并到 Audit Log）
   writeLintReportOut(lintReport, lintReportOut);
+
+  // ── 自动调用本地 preflight（完整闭环） ──
+  if (!args["no-preflight"]) {
+    const preflightScript = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../harness/preflight.mjs");
+    if (fs.existsSync(preflightScript)) {
+      console.log("\n🔍 自动调用本地 preflight...");
+      const preflightResult = spawnSync(
+        process.execPath,
+        [preflightScript, "--html", outputPath, "--md", absoluteInput, "--json"],
+        { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
+      );
+      let preflightReport;
+      try {
+        preflightReport = JSON.parse(preflightResult.stdout);
+      } catch {
+        preflightReport = { ok: false, error: "Failed to parse preflight output", raw: preflightResult.stdout };
+      }
+      if (!preflightReport.ok) {
+        console.error("\n❌ Preflight 检查未通过，推送被阻断。请修复上方问题后重新渲染。");
+        console.error("   如需跳过 preflight，使用 --no-preflight 参数（不推荐）。");
+        return 3;
+      }
+      console.log("✅ Preflight 通过。");
+    } else {
+      console.warn("⚠️  preflight.mjs 未找到，跳过自动检查。");
+    }
+  }
 
   return lintResult.passed ? 0 : 2;
 }

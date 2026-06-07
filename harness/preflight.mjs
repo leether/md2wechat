@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+import { loadLivingMemory, formatL3MemoryItems } from "./memory-loader.mjs";
 
 // ── 轻量 args 解析 ──
 function parseArgs(argv) {
@@ -331,18 +332,35 @@ function checkSummaryQuality(html, rules) {
 // ── L3 检查实现 ──
 
 function checkCtaIntegrity(html, rules) {
-  const hasFooter = html.includes("扫码加入") || html.includes("交流群") || html.includes("qr.png");
+  const ctaKeywords = ["扫码", "加入", "交流群", "关注", "点赞", "在看", "转发", "推荐", "星标"];
+  const hasCtaText = ctaKeywords.some((kw) => html.includes(kw));
   const hasQr = html.includes("qr.png") || html.includes("mmbiz.qpic.cn");
-  if (!hasFooter) {
+  const hasFooterRegion = html.includes("footer") || html.includes("cta") || html.includes("qr");
+
+  if (!hasCtaText && !hasQr) {
     return {
       passed: false,
       level: "L3",
       id: "cta_integrity",
       message: "No CTA footer detected in HTML. Consider adding a footer with QR code.",
       auto_detect: true,
+      details: { hasCtaText, hasQr, hasFooterRegion },
     };
   }
-  return { passed: true, level: "L3", id: "cta_integrity", hasFooter, hasQr };
+
+  // 有 CTA 文本但无二维码 → 警告级别（可能是纯文本 CTA）
+  if (hasCtaText && !hasQr) {
+    return {
+      passed: false,
+      level: "L3",
+      id: "cta_integrity",
+      message: "CTA text found but no QR code image detected. If article needs QR footer, check .env FOOTER_QR_PATH.",
+      auto_detect: true,
+      details: { hasCtaText, hasQr, hasFooterRegion },
+    };
+  }
+
+  return { passed: true, level: "L3", id: "cta_integrity", hasCtaText, hasQr, hasFooterRegion };
 }
 
 function checkCardCount(html, mdPath, rules) {
@@ -395,12 +413,11 @@ function checkTableCount(html, mdPath, rules) {
   return { passed: true, level: "L3", id: "table_count_match", htmlCount: htmlTableCount, mdCount: mdTableCount };
 }
 
-function checkImageCdnCount(html, rules) {
+function checkImageCdnCount(html, mdPath, rules) {
   const imgCount = (html.match(/<img/g) || []).length;
   const cdnCount = (html.match(/mmbiz\.qpic\.cn/g) || []).length;
-  // 本地 preflight 时 CDN 数通常等于 0（还没上传）
-  // 这个检查主要用于推送后的 Audit Log 对比
-  // 但本地可以检查是否有残留的非 CDN、非本地路径的 src
+
+  // 本地 preflight 阶段：检查本地路径残留
   const localPatternCount = (html.match(/src=["']\//g) || []).length;
   if (localPatternCount > 0) {
     return {
@@ -413,7 +430,30 @@ function checkImageCdnCount(html, rules) {
       localCount: localPatternCount,
     };
   }
-  return { passed: true, level: "L3", id: "image_cdn_count_match", imgCount, cdnCount };
+
+  // 比较 MD 中声明的图片数和 HTML 中渲染的 img 数
+  let mdImgCount = 0;
+  if (mdPath && fs.existsSync(mdPath)) {
+    const md = fs.readFileSync(mdPath, "utf8");
+    // 匹配 Markdown 图片语法 ![alt](url)
+    mdImgCount = (md.match(/!\[[^\]]*\]\([^)]+\)/g) || []).length;
+  }
+
+  // HTML 中的 img 数应 ≥ MD 中声明的图片数（因为 footer qr 可能额外添加）
+  if (mdPath && mdImgCount > 0 && imgCount < mdImgCount) {
+    return {
+      passed: false,
+      level: "L3",
+      id: "image_cdn_count_match",
+      message: `Image count mismatch: MD declares ${mdImgCount} image(s), HTML only has ${imgCount} <img> tag(s). Some images may not have rendered.`,
+      imgCount,
+      mdImgCount,
+      cdnCount,
+      localCount: localPatternCount,
+    };
+  }
+
+  return { passed: true, level: "L3", id: "image_cdn_count_match", imgCount, cdnCount, mdImgCount };
 }
 
 // ── 主检查流程 ──
@@ -460,12 +500,18 @@ export function runPreflight(opts) {
     checkCtaIntegrity(html, rules.l3_pattern_checks?.cta_integrity || {}),
     checkCardCount(html, mdPath, rules.l3_pattern_checks?.card_count_match || {}),
     checkTableCount(html, mdPath, rules.l3_pattern_checks?.table_count_match || {}),
-    checkImageCdnCount(html, rules.l3_pattern_checks?.image_cdn_count_match || {}),
+    checkImageCdnCount(html, mdPath, rules.l3_pattern_checks?.image_cdn_count_match || {}),
   ];
 
+  // ── 活记忆附加：将最近摩擦点加入 L3 人工确认清单 ──
+  const memory = loadLivingMemory();
+  const memoryItems = formatL3MemoryItems(memory);
   const l1Failures = l1Checks.filter((c) => !c.passed);
   const l2Warnings = l2Checks.filter((c) => !c.passed);
   const l3NeedsReview = l3Checks.filter((c) => !c.passed);
+  if (memoryItems.length > 0) {
+    l3NeedsReview.push(...memoryItems);
+  }
 
   const ok = l1Failures.length === 0;
 
@@ -476,7 +522,8 @@ export function runPreflight(opts) {
     mdPath,
     l1: { total: l1Checks.length, passed: l1Checks.length - l1Failures.length, failures: l1Failures },
     l2: { total: l2Checks.length, passed: l2Checks.length - l2Warnings.length, warnings: l2Warnings },
-    l3: { total: l3Checks.length, passed: l3Checks.length - l3NeedsReview.length, needsReview: l3NeedsReview },
+    l3: { total: l3Checks.length + memoryItems.length, passed: l3Checks.length - l3Checks.filter((c) => !c.passed).length, needsReview: l3NeedsReview },
+    memory: { loaded: memory.loaded, count: memory.total_friction_points },
     autopoiesis: rules.autopoiesis || {},
   };
 }
@@ -515,7 +562,8 @@ function formatReport(report) {
   // L3
   lines.push(`【L3 人工确认】${report.l3.passed}/${report.l3.total}`);
   for (const c of report.l3.needsReview) {
-    lines.push(`  📝 ${c.id}: ${c.message}`);
+    const icon = c.source === "living_memory" ? "🧠" : "📝";
+    lines.push(`  ${icon} ${c.id}: ${c.message}`);
   }
   if (report.l3.needsReview.length === 0) lines.push("  ✅ 无待确认项");
 
