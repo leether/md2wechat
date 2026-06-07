@@ -381,6 +381,7 @@ Commands:
   --auto-encode              Auto-encode into push_rules.json
   --write-lessons            Update LESSONS_LEARNED.md
   --generate-report          Generate self-report JSON
+  --analyze-log <path>       Analyze pipeline JSONL log and auto-capture patterns
   --json                     Output JSON only
   --help                     Show this help
 
@@ -388,6 +389,9 @@ Examples:
   # Capture and encode a new friction
   node harness/self_report.mjs --capture f030 --category "渲染" \\
     --description "新发现的问题" --resolution "修复方案" --auto-encode --write-lessons
+
+  # Analyze pipeline log for auto-capture
+  node harness/self_report.mjs --analyze-log .md2wechat-pipeline.jsonl --write-lessons
 `);
 }
 
@@ -403,6 +407,104 @@ function main() {
     rulesPath: args["rules-path"],
     lessonsPath: args["lessons-path"],
   });
+
+  if (args["analyze-log"]) {
+    const logPath = args["analyze-log"];
+    if (!fs.existsSync(logPath)) {
+      console.error(`Log file not found: ${logPath}`);
+      return 1;
+    }
+
+    const entries = fs.readFileSync(logPath, "utf8")
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l));
+
+    const failedSteps = entries.filter((e) => e.status === "failed");
+    const autofixes = entries.filter((e) => e.step === "autofix" && e.status === "applied");
+
+    // 已知失败模式 → 摩擦点映射
+    const knownPatterns = {
+      render: { id: "f031", category: "流程自动化", desc: "preflight 拦截导致渲染失败，需人工修复后重跑", resolution: "orchestrator --auto-fix 自动修复 digest/图片/路径等常见问题", rule_id: "preflight_auto_invoke" },
+      bundle: { id: "f036", category: "打包", desc: "bundle 阶段失败，通常是图片缺失或路径问题", resolution: "检查 HTML 中的图片路径是否正确，确保所有图片存在", rule_id: "bundle_integrity" },
+    };
+
+    let newCaptures = 0;
+
+    for (const step of failedSteps) {
+      const script = step.script || step.step;
+      const pattern = knownPatterns[script];
+      if (pattern) {
+        const exists = sr.frictionPoints.some((fp) => fp.id === pattern.id);
+        if (!exists) {
+          sr.captureFriction({
+            id: pattern.id,
+            category: pattern.category,
+            description: pattern.desc,
+            resolution: pattern.resolution,
+            rule_id: pattern.rule_id,
+            auto_encode: true,
+          });
+          newCaptures++;
+        }
+      }
+
+      // 从 stdout_preview 中提取具体的 preflight 失败类型
+      if (step.stdout_preview) {
+        const preflightMatch = step.stdout_preview.match(/"id":\s*"([^"]+)"/g);
+        if (preflightMatch) {
+          for (const m of preflightMatch) {
+            const id = m.match(/"id":\s*"([^"]+)"/)[1];
+            const preflightPatterns = {
+              digest_length: { id: "f027", category: "内容合规", desc: "digest 超过 128 字符被微信 API 拒绝", resolution: "Step 0 严格控制 summary ≤120 字；orchestrator --auto-fix 自动截断", rule_id: "digest_length" },
+              image_size: { id: "f010", category: "图片处理", desc: "图片超过 2MB 导致微信 API 拒绝", resolution: "sips -Z 压缩图片；orchestrator --auto-fix 自动压缩", rule_id: "image_size" },
+              local_path_absence: { id: "f030", category: "路径处理", desc: "HTML 中存在本地绝对路径，bundle 前未替换", resolution: "bundle_wechat_article.mjs 自动替换路径；preflight 可跳过此项（bundle 会处理）", rule_id: "local_path_absence" },
+            };
+            const pp = preflightPatterns[id];
+            if (pp) {
+              const exists = sr.frictionPoints.some((fp) => fp.id === pp.id);
+              if (!exists) {
+                sr.captureFriction({
+                  id: pp.id,
+                  category: pp.category,
+                  description: pp.desc,
+                  resolution: pp.resolution,
+                  rule_id: pp.rule_id,
+                  auto_encode: true,
+                });
+                newCaptures++;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (autofixes.length > 0) {
+      const hasAutofix = sr.frictionPoints.some((fp) => fp.id === "f037");
+      if (!hasAutofix) {
+        sr.captureFriction({
+          id: "f037",
+          category: "自动修复",
+          description: "preflight L1 失败需要人工介入修复，返工成本高",
+          resolution: "orchestrator --auto-fix 自动修复 digest/图片等常见问题",
+          rule_id: "autofix",
+          auto_encode: true,
+        });
+        newCaptures++;
+      }
+    }
+
+    if (newCaptures > 0) {
+      sr.autoEncode();
+    }
+
+    if (!args.json) {
+      console.log(`Analyzed ${entries.length} log entries`);
+      console.log(`Found ${failedSteps.length} failed step(s), ${autofixes.length} auto-fix(es)`);
+      console.log(`Auto-captured ${newCaptures} new friction point(s)`);
+    }
+  }
 
   if (args.capture) {
     sr.captureFriction({
