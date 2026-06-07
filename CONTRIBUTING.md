@@ -28,6 +28,27 @@ cp .env.example .env   # 填入你的测试公众号凭据
 4. 推送分支：`git push origin feat/your-feature`
 5. 创建 Pull Request
 
+### PR 发布治理清单
+
+在工作区存在无关未跟踪或未提交文件时，必须先写清 staged-file manifest，使用显式路径 `git add file1 file2`；不要用 `git add -A`。PR 描述应列出本次纳入范围，并说明被排除的本地文件。
+
+提交前至少运行：
+
+```bash
+npm run check
+./scripts/privacy-check.sh --full
+git diff --cached --check
+```
+
+合并顺序：
+1. 普通 merge：CI 全绿且 branch policy 允许。
+2. Auto-merge：普通 merge 被规则暂时阻挡且仓库开启 auto-merge。
+3. Admin merge：只在用户明确授权、CI 全绿、`gh pr view` 显示 `mergeable: MERGEABLE` 时使用，并在交付说明中记录原因。
+
+### Release Source Of Truth
+
+仓库没有独立 Release 文档。`.github/workflows/release.yml` 只在 `v*` tag push 时运行，并从 `CHANGELOG.md` 对应版本段抽取 GitHub Release body。普通 PR 只更新 `CHANGELOG.md` 的 `Unreleased`；不要为未打 tag 的变更创建 GitHub Release。
+
 ### 提交规范
 
 使用 [Conventional Commits](https://www.conventionalcommits.org/) 格式：
@@ -84,6 +105,12 @@ node scripts/render_wechat_editorial.mjs \
 - 卡片数与 Markdown 中 `:::wechat-card` 数量一致
 
 完整管线验证请提供封面和真实插图，或对纯文本文章显式使用 `--skip-image-check`。
+
+验证 orchestrator 时如不希望改写 `docs/LESSONS_LEARNED.md` 或生成自创生规则，请加：
+
+```bash
+node scripts/orchestrator.mjs ... --no-write-lessons
+```
 
 ### 隐私门禁（硬门禁，提交前必过）
 

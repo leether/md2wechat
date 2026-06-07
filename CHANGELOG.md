@@ -18,6 +18,7 @@
 ### Changed
 
 - **自创生治理**：`self_report`/`code-generator` 新生成规则默认进入 `observation_checks`，必须同时生成配套测试、evolution audit 和 rollback snapshot；观察层失败只报告不阻断
+- **发布治理**：新增 staged-file manifest、CI/merge decision ladder、release source-of-truth、参数契约矩阵和 self_report no-write 验证路径
 
 ## [0.4.0] - 2026-06-07
 

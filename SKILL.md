@@ -89,6 +89,18 @@ ${NODE_PATH} ${PIPELINE_HOME}/scripts/orchestrator.mjs \
 | `--thumb-image` | 封面图路径 |
 | `--qr` | 二维码图片路径 |
 | `--skip-image-check` | 纯文本文章或紧急调试时显式跳过封面/插图 L1 检查 |
+| `--no-write-lessons` | 验证时只分析 self_report，不写 LESSONS_LEARNED 或生成规则 |
+
+### 参数契约矩阵
+
+| 层 | 入口 | 关键参数 | 下游契约 | 证明命令 |
+|----|------|----------|----------|----------|
+| Render | `scripts/render_wechat_editorial.mjs` | `--preflight-cover`, `--skip-image-check`, `--no-preflight` | 自动 preflight 必须收到封面和显式逃逸意图 | `node scripts/render_wechat_editorial.mjs --input examples/sample-article.md --output /tmp/test.html --no-preflight` |
+| Preflight | `harness/preflight.mjs` | `--cover`, `--skip-image-check`, `--rules` | L1/Agent 失败阻断；Observation 只报告 | `node harness/preflight.mjs --html /tmp/test.html --md examples/sample-article.md --skip-image-check --json` |
+| Orchestrator | `scripts/orchestrator.mjs` | `--thumb-image`, `--skip-image-check`, `--auto-fix`, `--no-write-lessons` | render/preflight/bundle/self_report 参数必须显式转发 | `node scripts/orchestrator.mjs --input article.md --account X --thumb-image cover.png --auto-fix --dry-run --no-write-lessons` |
+| Bundle | `scripts/bundle_wechat_article.mjs` | `--thumb-image`, `--env`, `--qr` | bundle 必须携带封面、lint report、`.env` 和内联图片 manifest | `node scripts/bundle_wechat_article.mjs --html /tmp/test.html --out /tmp/bundle --thumb-image cover.png --env .env` |
+| Relay draft | `scripts/create_wechat_draft.mjs` | `--thumb-image`, `--crop-235-1`, `--lint-report` | 手动/自动 relay 命令必须传递封面、裁剪、标题、作者、账号 | `node harness/test-orchestrator-command-contract.mjs` |
+| Self-report | `harness/self_report.mjs` | `--write-lessons`, `--no-write`, `--auto-encode` | 验证默认应可 no-write；写入必须显式 | `node harness/self_report.mjs --analyze-log .md2wechat-pipeline.jsonl --no-write` |
 
 ### 典型使用流程
 
@@ -909,9 +921,22 @@ ${NODE_PATH} ${PIPELINE_HOME}/harness/self_report.mjs \
 # 运行生成规则配套测试
 ${NODE_PATH} ${PIPELINE_HOME}/harness/run-generated-check-tests.mjs
 
+# 仅分析日志，不写入 LESSONS_LEARNED 或生成规则
+${NODE_PATH} ${PIPELINE_HOME}/harness/self_report.mjs \
+  --analyze-log .md2wechat-pipeline.jsonl --no-write
+
 # 查看完整历史教训
 # 打开 docs/LESSONS_LEARNED.md（YAML frontmatter + Markdown 正文）
 ```
+
+### 生成规则提升策略
+
+`self_report`/`code-generator` 生成的新规则只能进入 `observation_checks`。要提升为 L1，必须另开 promotion Task Card，至少包含：
+
+- 生成规则对应的 companion test 和 fixture proof
+- 最近一次 observation finding 的样本
+- 误报风险说明和 rollback 方案
+- `npm run check` 与 Privacy Gate 结果
 
 ### 快速参考（最近 8 次高摩擦教训）
 

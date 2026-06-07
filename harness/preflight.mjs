@@ -126,7 +126,7 @@ function markdownContentLines(md) {
   return result;
 }
 
-function countWechatCardDirectives(md) {
+export function countWechatCardDirectives(md) {
   let count = 0;
   for (const { line, inFence } of markdownContentLines(md)) {
     if (inFence) continue;
@@ -137,7 +137,7 @@ function countWechatCardDirectives(md) {
   return count;
 }
 
-function countMarkdownTables(md) {
+export function countMarkdownTables(md) {
   const lines = markdownContentLines(md);
   let count = 0;
   let inCard = false;

@@ -48,6 +48,7 @@ Optional:
   --dry-run                Run full pipeline but skip WeChat API push
   --auto-fix               Automatically fix L1 preflight failures
   --skip-image-check       Skip pre_image_missing L1 check (for text-only articles)
+  --no-write-lessons       Run self_report without writing LESSONS_LEARNED or generated rules
   --open-comment <0|1>     Enable/disable comments (default: 1)
   --crop-235-1 <spec>      Cover crop spec (e.g. 0_0.0035_1_0.9965)
   --help                   Show this help
@@ -97,7 +98,7 @@ function readEnvVar(envPath, key) {
   }
 }
 
-function shellQuote(value = "") {
+export function shellQuote(value = "") {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
 }
 
@@ -106,6 +107,50 @@ function formatLocalDateStamp(date = new Date()) {
   const mm = String(date.getMonth() + 1).padStart(2, "0");
   const dd = String(date.getDate()).padStart(2, "0");
   return `${yyyy}${mm}${dd}`;
+}
+
+export function buildManualRelayCommand({
+  relayHost,
+  relayRoot,
+  account,
+  remoteDir,
+  outDir,
+  renderOut,
+  lintOut,
+  title,
+  slug,
+  author,
+  openComment,
+  thumbImage = null,
+  cropSpec = null,
+  envInBundle = false,
+}) {
+  const manualTitle = title || slug;
+  const manualScript = `${relayRoot}/${account}/shared/scripts/create_wechat_draft.mjs`;
+  const remoteDraftCmd = [
+    `cd ${shellQuote(remoteDir)} && node ${shellQuote(manualScript)}`,
+    `--html ${shellQuote(path.basename(renderOut))}`,
+    `--lint-report ${shellQuote(path.basename(lintOut))}`,
+    `--title ${shellQuote(manualTitle)}`,
+    `--author ${shellQuote(author)}`,
+    `--account ${shellQuote(account)}`,
+    `--open-comment ${shellQuote(openComment)}`,
+    ...(thumbImage ? [`--thumb-image ${shellQuote(path.basename(thumbImage))}`] : []),
+    ...(cropSpec ? [`--crop-235-1 ${shellQuote(cropSpec)}`] : []),
+  ].join(" ");
+
+  const pushCommands = [
+    `ssh ${shellQuote(relayHost)} ${shellQuote(`mkdir -p ${shellQuote(remoteDir)}`)}`,
+    `scp ${shellQuote(outDir)}/* ${shellQuote(`${relayHost}:${remoteDir}/`)}`,
+    ...(envInBundle ? [`scp ${shellQuote(path.join(outDir, ".env"))} ${shellQuote(`${relayHost}:${remoteDir}/.env`)}`] : []),
+    `ssh ${shellQuote(relayHost)} ${shellQuote(remoteDraftCmd)}`,
+  ];
+
+  return {
+    command: pushCommands.join(" && \\\n"),
+    remoteDraftCmd,
+    envReminder: Boolean(envInBundle),
+  };
 }
 
 // ── JSONL 日志 ──
@@ -419,6 +464,7 @@ function main() {
   const cropSpec = args["crop-235-1"];
   const autoPush = args["auto-push"] || false;
   const skipImageCheck = args["skip-image-check"] || false;
+  const noWriteLessons = args["no-write-lessons"] || false;
 
   if (!fs.existsSync(inputPath)) {
     err(`Input file not found: ${inputPath}`);
@@ -686,34 +732,31 @@ function main() {
 
     } else {
       step(3, "Push to WeChat Draft (MANUAL)");
-      const manualTitle = title || slug;
-      const manualScript = `${relayRoot}/${account}/shared/scripts/create_wechat_draft.mjs`;
-      const remoteDraftCmd = [
-        `cd ${shellQuote(remoteDir)} && node ${shellQuote(manualScript)}`,
-        `--html ${shellQuote(path.basename(renderOut))}`,
-        `--lint-report ${shellQuote(path.basename(lintOut))}`,
-        `--title ${shellQuote(manualTitle)}`,
-        `--author ${shellQuote(author)}`,
-        `--account ${shellQuote(account)}`,
-        `--open-comment ${shellQuote(openComment)}`,
-        ...(thumbImage ? [`--thumb-image ${shellQuote(path.basename(thumbImage))}`] : []),
-        ...(cropSpec ? [`--crop-235-1 ${shellQuote(cropSpec)}`] : []),
-      ].join(" ");
 
       info("Push command (copy to terminal):");
       const envInBundle = fs.existsSync(path.join(outDir, ".env"));
-      const pushCommands = [
-        `ssh ${shellQuote(relayHost)} ${shellQuote(`mkdir -p ${shellQuote(remoteDir)}`)}`,
-        `scp ${shellQuote(outDir)}/* ${shellQuote(`${relayHost}:${remoteDir}/`)}`,
-        ...(envInBundle ? [`scp ${shellQuote(path.join(outDir, ".env"))} ${shellQuote(`${relayHost}:${remoteDir}/.env`)}`] : []),
-        `ssh ${shellQuote(relayHost)} ${shellQuote(remoteDraftCmd)}`,
-      ];
-      const pushCmd = pushCommands.join(" && \\\n");
+      const manualCommand = buildManualRelayCommand({
+        relayHost,
+        relayRoot,
+        account,
+        remoteDir,
+        outDir,
+        renderOut,
+        lintOut,
+        title,
+        slug,
+        author,
+        openComment,
+        thumbImage,
+        cropSpec,
+        envInBundle,
+      });
+      const pushCmd = manualCommand.command;
       if (envInBundle) {
         warn("IMPORTANT: scp * does NOT copy hidden files. The command below uploads .env separately.");
       }
       console.log(`\n${C.cyan}${pushCmd}${C.reset}\n`);
-      logger.record("push", "command_generated", { command: pushCmd, envReminder: envInBundle });
+      logger.record("push", "command_generated", { command: pushCmd, envReminder: manualCommand.envReminder });
       ok("Push command generated. Execute manually or add --auto-push to execute automatically.");
     }
   }
@@ -728,14 +771,20 @@ function main() {
   // 尝试自动运行 self_report 分析日志
   const selfReportScript = path.join(PIPELINE_HOME, "harness", "self_report.mjs");
   if (fs.existsSync(selfReportScript)) {
+    const selfReportArgs = ["--analyze-log", logPath];
+    if (noWriteLessons) {
+      selfReportArgs.push("--no-write");
+    } else {
+      selfReportArgs.push("--write-lessons");
+    }
     const srResult = run(
       selfReportScript,
-      ["--analyze-log", logPath, "--write-lessons"],
+      selfReportArgs,
       logger,
       "self_report",
     );
     if (srResult.exitCode === 0) {
-      ok("Self-report analyzed and lessons updated");
+      ok(noWriteLessons ? "Self-report analyzed without writes" : "Self-report analyzed and lessons updated");
     } else {
       warn("Self-report analysis skipped or failed");
     }
