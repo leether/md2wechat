@@ -41,6 +41,7 @@ Optional:
   --digest <text>          Article digest (overrides HTML <!-- WECHAT_SUMMARY -->)
   --cover <path>           Cover image path (for size/aspect checks)
   --rules <path>           push_rules.json path (default: ./push_rules.json)
+  --skip-image-check       Skip pre_image_missing L1 check (for text-only articles)
   --json                   Output machine-readable JSON only
   --help                   Show this help
 `);
@@ -84,6 +85,27 @@ function extractLocalImagePaths(html, htmlDir) {
     paths.push(resolved);
   }
   return paths;
+}
+
+// ── 从 Markdown 提取 frontmatter ──
+function extractFrontmatter(mdPath) {
+  if (!mdPath || !fs.existsSync(mdPath)) return {};
+  const md = fs.readFileSync(mdPath, "utf8");
+  const m = md.match(/^---\n([\s\S]*?)\n---/);
+  if (!m) return {};
+  const fm = {};
+  for (const line of m[1].split("\n")) {
+    const kv = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*):\s*(.*)$/);
+    if (kv) {
+      let v = kv[2].trim();
+      if (v === "true") v = true;
+      else if (v === "false") v = false;
+      else if (/^\d+$/.test(v)) v = parseInt(v);
+      else v = v.replace(/^"|"$/g, "").replace(/^'|'$/g, "");
+      fm[kv[1]] = v;
+    }
+  }
+  return fm;
 }
 
 // ── 获取图片尺寸（macOS sips / Linux file） ──
@@ -557,6 +579,75 @@ function checkCoverPlaceholder(coverPath, rules) {
   return { passed: true, level: "L1", id: "cover_placeholder_text", ocrLength: ocrText.length };
 }
 
+function checkPreImageMissing(html, htmlDir, mdPath, coverPath, rules, skipImageCheck) {
+  // ── 逃逸机制 1: CLI 开关
+  if (skipImageCheck) {
+    return {
+      passed: true,
+      level: "L1",
+      id: "pre_image_missing",
+      skipped: true,
+      reason: "--skip-image-check flag is set",
+    };
+  }
+
+  // ── 逃逸机制 2: Markdown frontmatter no_image: true
+  const fm = extractFrontmatter(mdPath);
+  if (fm.no_image === true) {
+    return {
+      passed: true,
+      level: "L1",
+      id: "pre_image_missing",
+      skipped: true,
+      reason: "frontmatter no_image: true",
+    };
+  }
+
+  const issues = [];
+
+  // 1. 封面图必须存在
+  if (!coverPath || !fs.existsSync(coverPath)) {
+    issues.push("Cover image is missing. Use dreamina CLI to generate a cover.");
+  } else {
+    // 检查封面图大小：占位图通常极小（< 10KB），正常 AI 生成图 > 50KB
+    const stat = fs.statSync(coverPath);
+    if (stat.size < 10240) {
+      issues.push(`Cover image is suspiciously small (${(stat.size / 1024).toFixed(1)}KB), likely a placeholder. Regenerate with dreamina CLI.`);
+    }
+  }
+
+  // 2. HTML 中必须有本地图片（排除纯文本文章）
+  const localImages = extractLocalImagePaths(html, htmlDir);
+  // 过滤掉二维码（qr.png 通常很小，不算正文插图）
+  const nonQrImages = localImages.filter((p) => !p.toLowerCase().includes("qr"));
+  if (nonQrImages.length === 0) {
+    issues.push("No inline images found in HTML. Generate at least one illustration with dreamina CLI.");
+  }
+
+  // 3. 检查是否有占位图特征（极小文件或特定文件名）
+  for (const imgPath of localImages) {
+    if (!fs.existsSync(imgPath)) continue;
+    const stat = fs.statSync(imgPath);
+    const basename = path.basename(imgPath).toLowerCase();
+    if (stat.size < 5120 || basename.includes("placeholder") || basename.includes("sample") || basename.includes("temp")) {
+      issues.push(`Image "${basename}" appears to be a placeholder (${(stat.size / 1024).toFixed(1)}KB). Regenerate with dreamina CLI.`);
+    }
+  }
+
+  if (issues.length > 0) {
+    return {
+      passed: false,
+      level: "L1",
+      id: "pre_image_missing",
+      message: issues.join(" "),
+      details: { issues, localImages, nonQrImages },
+      fix_hint: "Run: dreamina generate --ratio 21:9 --size 2k --prompt 'your cover prompt'",
+    };
+  }
+
+  return { passed: true, level: "L1", id: "pre_image_missing", localImages, nonQrImages };
+}
+
 // ── 主检查流程 ──
 
 export async function runPreflight(opts) {
@@ -568,6 +659,7 @@ export async function runPreflight(opts) {
     digest,
     coverPath,
     rulesPath,
+    skipImageCheck,
   } = opts;
 
   const rulesFile = rulesPath || path.join(path.dirname(fileURLToPath(import.meta.url)), "push_rules.json");
@@ -594,6 +686,7 @@ export async function runPreflight(opts) {
     checkImageCdnCount(html, mdPath, rules.l1_mandatory_checks?.image_cdn_count_match || {}),
     checkNarrativePerspective(html, mdPath, rules.l1_mandatory_checks?.narrative_perspective || {}),
     checkCoverPlaceholder(coverPath, rules.l1_mandatory_checks?.cover_placeholder_text || {}),
+    checkPreImageMissing(html, htmlDir, mdPath, coverPath, rules.l1_mandatory_checks?.pre_image_missing || {}, skipImageCheck),
   ];
 
   // ── 动态加载生成的检查（代码驱动自创生）──
@@ -780,6 +873,7 @@ async function main() {
     digest: args.digest,
     coverPath: args.cover,
     rulesPath: args.rules,
+    skipImageCheck: args["skip-image-check"],
   });
 
   if (args.json) {
