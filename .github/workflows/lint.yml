@@ -41,4 +41,7 @@ jobs:
       - name: Run generated check tests
         run: |
           node harness/test-code-generator-contract.mjs
+          node harness/test-preflight-fixtures.mjs
+          node harness/test-orchestrator-command-contract.mjs
+          node harness/test-self-report-no-write.mjs
           node harness/run-generated-check-tests.mjs

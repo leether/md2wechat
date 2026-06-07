@@ -24,7 +24,7 @@ function decodeHtmlEntities(text) {
     .replace(/&#39;/g, "'");
 }
 
-function htmlToVisibleText(html) {
+export function htmlToVisibleText(html) {
   return decodeHtmlEntities(
     String(html || "")
       .replace(/<!--[\s\S]*?-->/g, " ")
@@ -36,7 +36,7 @@ function htmlToVisibleText(html) {
   );
 }
 
-function extractPreciseNumbers(text) {
+export function extractPreciseNumbers(text) {
   const numbers = [];
 
   // 百分比：23.5%、100%
@@ -134,4 +134,7 @@ function main() {
   }));
 }
 
-main();
+const isMain = process.argv[1] && process.argv[1].endsWith("source-verification.mjs");
+if (isMain) {
+  main();
+}

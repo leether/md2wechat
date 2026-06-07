@@ -414,8 +414,11 @@ Commands:
   --rule-id <text>           Associated rule id
   --auto-encode              Auto-encode into push_rules.json
   --write-lessons            Update LESSONS_LEARNED.md
+  --no-write                 Analyze/capture only; do not auto-encode rules or update LESSONS_LEARNED.md
   --generate-report          Generate self-report JSON
   --analyze-log <path>       Analyze pipeline JSONL log and auto-capture patterns
+  --rules-path <path>        Override push_rules.json path
+  --lessons-path <path>      Override LESSONS_LEARNED.md path
   --json                     Output JSON only
   --help                     Show this help
 
@@ -431,6 +434,7 @@ Examples:
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  const noWrite = Boolean(args["no-write"]);
 
   if (args.help) {
     printHelp();
@@ -530,7 +534,7 @@ async function main() {
       }
     }
 
-    if (newCaptures > 0) {
+    if (newCaptures > 0 && !noWrite) {
       await sr.autoEncode();
     }
 
@@ -553,13 +557,21 @@ async function main() {
   }
 
   if (args["auto-encode"]) {
-    const count = await sr.autoEncode();
-    if (!args.json) console.log(`Auto-encoded ${count} new rule(s)`);
+    if (noWrite) {
+      if (!args.json) console.log("Auto-encode skipped because --no-write is set");
+    } else {
+      const count = await sr.autoEncode();
+      if (!args.json) console.log(`Auto-encoded ${count} new rule(s)`);
+    }
   }
 
   if (args["write-lessons"]) {
-    sr.writeLessons();
-    if (!args.json) console.log(`Updated ${sr.lessonsPath}`);
+    if (noWrite) {
+      if (!args.json) console.log("LESSONS_LEARNED update skipped because --no-write is set");
+    } else {
+      sr.writeLessons();
+      if (!args.json) console.log(`Updated ${sr.lessonsPath}`);
+    }
   }
 
   if (args["generate-report"] || args.json) {
