@@ -1,0 +1,189 @@
+{
+  "_description": "md2wechat 分层质检规则定义。L1=硬阻塞，L2=警告，L3=模式检查。任何 L1 失败必须阻断流程，L2 失败输出警告但可继续，L3 失败输出人工检查清单。",
+  "version": "1.1.0",
+  "l1_mandatory_checks": {
+    "_description": "L1 硬阻塞：任何一项失败，不得进入上传/推送阶段",
+    "digest_length": {
+      "id": "digest_length",
+      "name": "摘要长度",
+      "description": "文章 digest（summary）不得超过微信 API 128 字符限制",
+      "auto_detect": true,
+      "check_fn": "preflight._checkDigestLength",
+      "block_on_fail": true,
+      "threshold": {
+        "max_chars": 128,
+        "recommended_max": 120
+      }
+    },
+    "title_length": {
+      "id": "title_length",
+      "name": "标题长度",
+      "description": "文章标题不得超过微信展示限制",
+      "auto_detect": true,
+      "check_fn": "preflight._checkTitleLength",
+      "block_on_fail": true,
+      "threshold": {
+        "max_chars": 32,
+        "recommended_max": 21
+      }
+    },
+    "author_length": {
+      "id": "author_length",
+      "name": "作者长度",
+      "description": "作者名称不得超过 16 字符",
+      "auto_detect": true,
+      "check_fn": "preflight._checkAuthorLength",
+      "block_on_fail": true,
+      "threshold": {
+        "max_chars": 16
+      }
+    },
+    "local_path_absence": {
+      "id": "local_path_absence",
+      "name": "本地路径残留",
+      "description": "HTML 中不得存在本地绝对路径（/Users/ /tmp/ /home/ 等），必须已替换为文件名或微信 CDN URL",
+      "auto_detect": true,
+      "check_fn": "preflight._checkLocalPaths",
+      "block_on_fail": true
+    },
+    "image_size": {
+      "id": "image_size",
+      "name": "图片大小",
+      "description": "所有内联图片和封面图大小不得超过 2MB（微信 API 限制）",
+      "auto_detect": true,
+      "check_fn": "preflight._checkImageSizes",
+      "block_on_fail": true,
+      "threshold": {
+        "max_bytes": 2097152
+      }
+    },
+    "html_compliance": {
+      "id": "html_compliance",
+      "name": "HTML 微信合规",
+      "description": "HTML 不得包含微信会过滤的内容（position/filters 等）",
+      "auto_detect": true,
+      "check_fn": "preflight._checkHtmlCompliance",
+      "block_on_fail": true
+    }
+  },
+  "l2_warning_checks": {
+    "_description": "L2 警告：失败输出警告日志，但不阻断流程",
+    "content_chars": {
+      "id": "content_chars",
+      "name": "内容字符数",
+      "description": "HTML 内容字符数超过 20000 时警告（微信排版依赖内联 style，不硬阻）",
+      "auto_detect": true,
+      "check_fn": "preflight._checkContentChars",
+      "threshold": {
+        "warn_chars": 20000
+      }
+    },
+    "content_bytes": {
+      "id": "content_bytes",
+      "name": "内容字节数",
+      "description": "HTML 内容字节数超过 1MB 时警告",
+      "auto_detect": true,
+      "check_fn": "preflight._checkContentBytes",
+      "threshold": {
+        "warn_bytes": 1048576
+      }
+    },
+    "cover_aspect_ratio": {
+      "id": "cover_aspect_ratio",
+      "name": "封面图比例",
+      "description": "封面图宽高比偏离 2.35:1 时警告",
+      "auto_detect": true,
+      "check_fn": "preflight._checkCoverAspectRatio",
+      "threshold": {
+        "target_ratio": 2.35,
+        "tolerance": 0.2
+      }
+    },
+    "summary_quality": {
+      "id": "summary_quality",
+      "name": "摘要质量",
+      "description": "summary 应包含核心结论 + 具体数据/论据，而非泛泛概括",
+      "auto_detect": false,
+      "threshold": {
+        "min_data_points": 1,
+        "min_chars": 20
+      }
+    }
+  },
+  "l3_pattern_checks": {
+    "_description": "L3 模式检查：自动检测+人工确认。auto_detect=true 的项程序自动检查并输出报告，auto_detect=false 的项输出人工检查清单",
+    "source_verification": {
+      "id": "source_verification",
+      "name": "原文量化描述核对",
+      "description": "涉及时间、倍数、人数、版本号等精确数字的改写，必须与原文逐字核对，不得凭记忆填充",
+      "auto_detect": false,
+      "manual_checklist": [
+        "所有精确数字（时间/倍数/人数/金额/版本号）已回源核对",
+        "未发现凭记忆改写导致的夸大或缩小",
+        "推断性表述已明确标注为推断，非事实"
+      ]
+    },
+    "cta_integrity": {
+      "id": "cta_integrity",
+      "name": "CTA 完整性",
+      "description": "文章结尾包含引导关注/点赞/转发的 CTA 区域，二维码可正常扫描",
+      "auto_detect": true,
+      "check_fn": "preflight._checkCtaIntegrity",
+      "manual_checklist": [
+        "footer 区域存在且渲染正确",
+        "二维码图片可正常加载",
+        "CTA 文案符合公众号品牌"
+      ]
+    },
+    "card_count_match": {
+      "id": "card_count_match",
+      "name": "卡片渲染一致性",
+      "description": "HTML 中渲染的卡片数与 Markdown 中声明的卡片数一致",
+      "auto_detect": true,
+      "check_fn": "preflight._checkCardCount",
+      "manual_checklist": [
+        "border-radius:22px 数量与 MD 中 :::wechat-card 数量一致",
+        "卡片被静默忽略时 style 数正常但卡片数为 0"
+      ]
+    },
+    "table_count_match": {
+      "id": "table_count_match",
+      "name": "表格渲染一致性",
+      "description": "HTML 中渲染的表格数与 Markdown 中声明的表格数一致（注意卡片内表格不会被渲染）",
+      "auto_detect": true,
+      "check_fn": "preflight._checkTableCount",
+      "manual_checklist": [
+        "<table> 数量与 MD 中表格数量一致",
+        "卡片内无表格（会被静默忽略）"
+      ]
+    },
+    "image_cdn_count_match": {
+      "id": "image_cdn_count_match",
+      "name": "图片 CDN 一致性",
+      "description": "HTML 中 mmbiz.qpic.cn CDN 图片数与 <img> 标签总数一致（封面+插图+二维码）",
+      "auto_detect": true,
+      "check_fn": "preflight._checkImageCdnCount",
+      "manual_checklist": [
+        "所有本地图片路径已替换为文件名",
+        "推送后 CDN 图片数等于 img 标签数"
+      ]
+    },
+    "local_path_absence": {
+      "id": "local_path_absence",
+      "name": "[AUTO] 路径处理",
+      "description": "bundle 残留旧文件导致推送旧版 HTML",
+      "auto_detect": false,
+      "manual_checklist": [
+        "bundle_wechat_article.mjs 自动清理输出目录后再复制"
+      ],
+      "origin_friction": "f030",
+      "autopoiesis": true
+    }
+  },
+  "autopoiesis": {
+    "self_report_enabled": true,
+    "auto_encode": true,
+    "last_evolution": "2026-06-07T05:38:48.307Z",
+    "evolution_count": 1
+  }
+}
