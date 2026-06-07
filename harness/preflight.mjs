@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { loadLivingMemory, formatL3MemoryItems } from "./memory-loader.mjs";
@@ -340,10 +341,9 @@ function checkCtaIntegrity(html, rules) {
   if (!hasCtaText && !hasQr) {
     return {
       passed: false,
-      level: "L3",
+      level: "L1",
       id: "cta_integrity",
       message: "No CTA footer detected in HTML. Consider adding a footer with QR code.",
-      auto_detect: true,
       details: { hasCtaText, hasQr, hasFooterRegion },
     };
   }
@@ -352,15 +352,14 @@ function checkCtaIntegrity(html, rules) {
   if (hasCtaText && !hasQr) {
     return {
       passed: false,
-      level: "L3",
+      level: "L1",
       id: "cta_integrity",
       message: "CTA text found but no QR code image detected. If article needs QR footer, check .env FOOTER_QR_PATH.",
-      auto_detect: true,
       details: { hasCtaText, hasQr, hasFooterRegion },
     };
   }
 
-  return { passed: true, level: "L3", id: "cta_integrity", hasCtaText, hasQr, hasFooterRegion };
+  return { passed: true, level: "L1", id: "cta_integrity", hasCtaText, hasQr, hasFooterRegion };
 }
 
 function checkCardCount(html, mdPath, rules) {
@@ -373,14 +372,14 @@ function checkCardCount(html, mdPath, rules) {
   if (mdPath && mdCardCount > 0 && htmlCardCount !== mdCardCount) {
     return {
       passed: false,
-      level: "L3",
+      level: "L1",
       id: "card_count_match",
       message: `Card count mismatch: MD has ${mdCardCount}, HTML has ${htmlCardCount}`,
       mdCount: mdCardCount,
       htmlCount: htmlCardCount,
     };
   }
-  return { passed: true, level: "L3", id: "card_count_match", htmlCount: htmlCardCount, mdCount: mdCardCount };
+  return { passed: true, level: "L1", id: "card_count_match", htmlCount: htmlCardCount, mdCount: mdCardCount };
 }
 
 function checkTableCount(html, mdPath, rules) {
@@ -403,14 +402,14 @@ function checkTableCount(html, mdPath, rules) {
   if (mdPath && mdTableCount > 0 && htmlTableCount !== mdTableCount) {
     return {
       passed: false,
-      level: "L3",
+      level: "L1",
       id: "table_count_match",
       message: `Table count mismatch: MD has ${mdTableCount} (excl. cards), HTML has ${htmlTableCount}`,
       mdCount: mdTableCount,
       htmlCount: htmlTableCount,
     };
   }
-  return { passed: true, level: "L3", id: "table_count_match", htmlCount: htmlTableCount, mdCount: mdTableCount };
+  return { passed: true, level: "L1", id: "table_count_match", htmlCount: htmlTableCount, mdCount: mdTableCount };
 }
 
 function checkImageCdnCount(html, mdPath, rules) {
@@ -422,7 +421,7 @@ function checkImageCdnCount(html, mdPath, rules) {
   if (localPatternCount > 0) {
     return {
       passed: false,
-      level: "L3",
+      level: "L1",
       id: "image_cdn_count_match",
       message: `Found ${localPatternCount} image(s) with local/absolute paths. All images should be filenames (for upload) or CDN URLs.`,
       imgCount,
@@ -443,7 +442,7 @@ function checkImageCdnCount(html, mdPath, rules) {
   if (mdPath && mdImgCount > 0 && imgCount < mdImgCount) {
     return {
       passed: false,
-      level: "L3",
+      level: "L1",
       id: "image_cdn_count_match",
       message: `Image count mismatch: MD declares ${mdImgCount} image(s), HTML only has ${imgCount} <img> tag(s). Some images may not have rendered.`,
       imgCount,
@@ -453,7 +452,7 @@ function checkImageCdnCount(html, mdPath, rules) {
     };
   }
 
-  return { passed: true, level: "L3", id: "image_cdn_count_match", imgCount, cdnCount, mdImgCount };
+  return { passed: true, level: "L1", id: "image_cdn_count_match", imgCount, cdnCount, mdImgCount };
 }
 
 function checkNarrativePerspective(html, mdPath, rules) {
@@ -491,36 +490,76 @@ function checkNarrativePerspective(html, mdPath, rules) {
   if (matches.length > 0) {
     return {
       passed: false,
-      level: "L3",
+      level: "L1",
       id: "narrative_perspective",
       message: `Detected ${matches.length} AI-perspective phrase(s) in article. Ensure all "我" refer to the same subject (the author).`,
-      auto_detect: true,
       details: { matches },
     };
   }
 
-  return { passed: true, level: "L3", id: "narrative_perspective" };
+  return { passed: true, level: "L1", id: "narrative_perspective" };
 }
 
 function checkCoverPlaceholder(coverPath, rules) {
-  // OQ1 裁决：不引入 OCR，用人工程序清单 + 增强提示
   const hasCover = coverPath && fs.existsSync(coverPath);
+  if (!hasCover) {
+    return { passed: true, level: "L1", id: "cover_placeholder_text", skipped: true, reason: "No cover provided" };
+  }
 
-  return {
-    passed: false, // L3 人工确认项，始终需要人工检查
-    level: "L3",
-    id: "cover_placeholder_text",
-    message: hasCover
-      ? `Cover image detected at ${coverPath}. Please visually inspect for placeholder/template text (e.g. "【中文标题放置区】").`
-      : "No cover image provided. If generating cover with AI, visually inspect for placeholder text before pushing.",
-    auto_detect: false,
-    details: { coverPath, hasCover },
-  };
+  // 使用 tesseract OCR 检测封面图中的文字
+  let ocrText = "";
+  try {
+    ocrText = execFileSync("tesseract", [coverPath, "stdout", "-l", "chi_sim+eng"], {
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 15000,
+    });
+  } catch (e) {
+    // OCR 失败时不阻塞，降级为警告
+    return {
+      passed: true,
+      level: "L2",
+      id: "cover_placeholder_text",
+      skipped: true,
+      reason: `OCR failed: ${e.message}`,
+    };
+  }
+
+  // 占位符关键词库（支持扩展）
+  const placeholderPatterns = [
+    /【[^】]*标题[^】]*】/,
+    /【[^】]*放置[^】]*】/,
+    /【[^】]*占位[^】]*】/,
+    /placeholder/i,
+    /sample/i,
+    /template/i,
+    /示例/i,
+    /样例/i,
+    /测试/i,
+  ];
+
+  const matches = [];
+  for (const pattern of placeholderPatterns) {
+    const m = ocrText.match(pattern);
+    if (m) matches.push(m[0]);
+  }
+
+  if (matches.length > 0) {
+    return {
+      passed: false,
+      level: "L1",
+      id: "cover_placeholder_text",
+      message: `Detected placeholder text in cover image: "${matches.join(", ")}". Please remove or regenerate the cover.`,
+      details: { matches, ocrLength: ocrText.length },
+    };
+  }
+
+  return { passed: true, level: "L1", id: "cover_placeholder_text", ocrLength: ocrText.length };
 }
 
 // ── 主检查流程 ──
 
-export function runPreflight(opts) {
+export async function runPreflight(opts) {
   const {
     htmlPath,
     mdPath,
@@ -549,7 +588,36 @@ export function runPreflight(opts) {
     checkLocalPaths(html, rules.l1_mandatory_checks?.local_path_absence || {}),
     checkImageSizes(html, htmlDir, coverPath, rules.l1_mandatory_checks?.image_size || {}),
     checkHtmlCompliance(html, rules.l1_mandatory_checks?.html_compliance || {}),
+    checkCtaIntegrity(html, rules.l1_mandatory_checks?.cta_integrity || {}),
+    checkCardCount(html, mdPath, rules.l1_mandatory_checks?.card_count_match || {}),
+    checkTableCount(html, mdPath, rules.l1_mandatory_checks?.table_count_match || {}),
+    checkImageCdnCount(html, mdPath, rules.l1_mandatory_checks?.image_cdn_count_match || {}),
+    checkNarrativePerspective(html, mdPath, rules.l1_mandatory_checks?.narrative_perspective || {}),
+    checkCoverPlaceholder(coverPath, rules.l1_mandatory_checks?.cover_placeholder_text || {}),
   ];
+
+  // ── 动态加载生成的检查（代码驱动自创生）──
+  const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+  const checksDir = path.join(scriptDir, "preflight-checks");
+  if (fs.existsSync(checksDir)) {
+    const checkFiles = fs.readdirSync(checksDir).filter((f) => f.endsWith(".mjs"));
+    for (const file of checkFiles) {
+      const ruleId = file.replace(".mjs", "");
+      // 跳过已在内置检查中注册的（避免重复）
+      if (rules.l1_mandatory_checks && rules.l1_mandatory_checks[ruleId]) {
+        try {
+          const mod = await import(path.join(checksDir, file));
+          const fnName = `check_${ruleId}`;
+          if (mod[fnName]) {
+            const result = mod[fnName]({ html, mdPath, htmlDir, coverPath, title, author, digest });
+            l1Checks.push(result);
+          }
+        } catch (e) {
+          console.error(`⚠️  Failed to load generated check ${file}: ${e.message}`);
+        }
+      }
+    }
+  }
 
   const l2Checks = [
     checkContentChars(html, rules.l2_warning_checks?.content_chars || {}),
@@ -558,26 +626,21 @@ export function runPreflight(opts) {
     checkSummaryQuality(html, rules.l2_warning_checks?.summary_quality || {}),
   ];
 
-  const l3Checks = [
-    checkCtaIntegrity(html, rules.l3_pattern_checks?.cta_integrity || {}),
-    checkCardCount(html, mdPath, rules.l3_pattern_checks?.card_count_match || {}),
-    checkTableCount(html, mdPath, rules.l3_pattern_checks?.table_count_match || {}),
-    checkImageCdnCount(html, mdPath, rules.l3_pattern_checks?.image_cdn_count_match || {}),
-    checkNarrativePerspective(html, mdPath, rules.l3_pattern_checks?.narrative_perspective || {}),
-    checkCoverPlaceholder(coverPath, rules.l3_pattern_checks?.cover_placeholder_text || {}),
-  ];
+  // ── 子代理检查：source_verification（需要语义理解，调用外部 agent）──
+  const agentChecks = [];
+  const sourceVerifyRule = rules.l1_mandatory_checks?.source_verification;
+  if (sourceVerifyRule && mdPath && fs.existsSync(mdPath)) {
+    agentChecks.push(runAgentCheck("source-verification", { html, mdPath, htmlDir, rules: sourceVerifyRule }));
+  }
 
-  // ── 活记忆附加：将最近摩擦点加入 L3 人工确认清单 ──
+  // ── 活记忆附加：运行时摩擦点风险提示 ──
   const memory = loadLivingMemory();
   const memoryItems = formatL3MemoryItems(memory);
   const l1Failures = l1Checks.filter((c) => !c.passed);
   const l2Warnings = l2Checks.filter((c) => !c.passed);
-  const l3NeedsReview = l3Checks.filter((c) => !c.passed);
-  if (memoryItems.length > 0) {
-    l3NeedsReview.push(...memoryItems);
-  }
+  const agentFailures = agentChecks.filter((c) => c && !c.passed);
 
-  const ok = l1Failures.length === 0;
+  const ok = l1Failures.length === 0 && agentFailures.length === 0;
 
   return {
     ok,
@@ -586,10 +649,53 @@ export function runPreflight(opts) {
     mdPath,
     l1: { total: l1Checks.length, passed: l1Checks.length - l1Failures.length, failures: l1Failures },
     l2: { total: l2Checks.length, passed: l2Checks.length - l2Warnings.length, warnings: l2Warnings },
-    l3: { total: l3Checks.length + memoryItems.length, passed: l3Checks.length - l3Checks.filter((c) => !c.passed).length, needsReview: l3NeedsReview },
-    memory: { loaded: memory.loaded, count: memory.total_friction_points },
+    agent: { total: agentChecks.length, passed: agentChecks.length - agentFailures.length, failures: agentFailures },
+    memory: { loaded: memory.loaded, count: memory.total_friction_points, items: memoryItems },
     autopoiesis: rules.autopoiesis || {},
   };
+}
+
+// ── 子代理检查执行 ──
+function runAgentCheck(agentId, context) {
+  const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+  const agentPath = path.join(scriptDir, "agents", `${agentId}.mjs`);
+
+  if (!fs.existsSync(agentPath)) {
+    return {
+      passed: true,
+      level: "L2",
+      id: agentId,
+      skipped: true,
+      reason: `Agent script not found: ${agentPath}`,
+    };
+  }
+
+  try {
+    // 通过临时 JSON 文件传递上下文（避免命令行长度限制）
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "md2wechat-agent-"));
+    const ctxPath = path.join(tmpDir, "context.json");
+    fs.writeFileSync(ctxPath, JSON.stringify(context, null, 2));
+
+    const out = execFileSync(process.execPath, [agentPath, ctxPath], {
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 30000,
+    });
+
+    // 清理临时文件
+    try { fs.rmSync(tmpDir, { recursive: true }); } catch {}
+
+    const result = JSON.parse(out.trim().split("\n").pop());
+    return { ...result, level: "L1", id: agentId };
+  } catch (e) {
+    return {
+      passed: false,
+      level: "L1",
+      id: agentId,
+      message: `Agent check failed: ${e.message}`,
+      details: { agentId, error: e.message },
+    };
+  }
 }
 
 function formatReport(report) {
@@ -604,13 +710,18 @@ function formatReport(report) {
   lines.push(`【L1 硬阻塞】${report.l1.passed}/${report.l1.total}`);
   for (const c of report.l1.failures) {
     lines.push(`  ❌ ${c.id}: ${c.message}`);
-  }
-  for (const c of report.l1.failures) {
     if (c.digest) lines.push(`     digest: "${c.digest}"`);
     if (c.matches) lines.push(`     matches: ${c.matches.join(", ")}`);
     if (c.details) {
-      for (const d of c.details.slice(0, 3)) {
-        lines.push(`     ${d.path}${d.exists ? ` (${(d.size / 1024 / 1024).toFixed(2)}MB > limit)` : " [NOT FOUND]"}`);
+      if (c.details.matches) {
+        for (const m of c.details.matches.slice(0, 3)) {
+          lines.push(`     → "${m.context || m}"`);
+        }
+      }
+      if (c.details.oversized) {
+        for (const d of c.details.oversized?.slice(0, 3) || []) {
+          lines.push(`     ${d.path}${d.exists ? ` (${(d.size / 1024 / 1024).toFixed(2)}MB > limit)` : " [NOT FOUND]"}`);
+        }
       }
     }
   }
@@ -623,13 +734,22 @@ function formatReport(report) {
   }
   if (report.l2.warnings.length === 0) lines.push("  ✅ 无警告");
 
-  // L3
-  lines.push(`【L3 人工确认】${report.l3.passed}/${report.l3.total}`);
-  for (const c of report.l3.needsReview) {
-    const icon = c.source === "living_memory" ? "🧠" : "📝";
-    lines.push(`  ${icon} ${c.id}: ${c.message}`);
+  // Agent
+  if (report.agent && report.agent.total > 0) {
+    lines.push(`【Agent 子代理】${report.agent.passed}/${report.agent.total}`);
+    for (const c of report.agent.failures) {
+      lines.push(`  🤖 ${c.id}: ${c.message}`);
+    }
+    if (report.agent.failures.length === 0) lines.push("  ✅ 全部通过");
   }
-  if (report.l3.needsReview.length === 0) lines.push("  ✅ 无待确认项");
+
+  // Memory
+  if (report.memory && report.memory.items && report.memory.items.length > 0) {
+    lines.push(`【活记忆风险提示】${report.memory.items.length} 条`);
+    for (const c of report.memory.items.slice(0, 3)) {
+      lines.push(`  🧠 ${c.id}: ${c.message}`);
+    }
+  }
 
   lines.push("");
   lines.push(report.ok ? "✅ Preflight 通过，可以上传推送。" : "❌ Preflight 未通过，请修复 L1 问题后重试。");
@@ -638,7 +758,7 @@ function formatReport(report) {
 }
 
 // ── CLI 入口 ──
-function main() {
+async function main() {
   const args = parseArgs(process.argv.slice(2));
 
   if (args.help || (!args.html && !args._?.[0])) {
@@ -652,7 +772,7 @@ function main() {
     return 1;
   }
 
-  const report = runPreflight({
+  const report = await runPreflight({
     htmlPath,
     mdPath: args.md,
     title: args.title,
@@ -676,10 +796,10 @@ const isMain = process.argv[1] && (
   (fs.existsSync(process.argv[1]) && fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url))
 );
 if (isMain) {
-  try {
-    process.exitCode = main();
-  } catch (error) {
+  main().then((code) => {
+    process.exitCode = code ?? 0;
+  }).catch((error) => {
     console.error(error.message);
     process.exitCode = 1;
-  }
+  });
 }
