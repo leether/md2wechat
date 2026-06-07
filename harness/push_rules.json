@@ -124,6 +124,16 @@
       "auto_detect": true,
       "agent_fn": "agents.source-verification",
       "block_on_fail": true
+    },
+    "pre_image_missing": {
+      "id": "pre_image_missing",
+      "name": "图片预生成完整性",
+      "description": "封面图和正文插图必须已使用 AI 生成（dreamina CLI），不得使用占位图或跳过生图步骤。支持 --skip-image-check 或 frontmatter no_image:true 逃逸。",
+      "auto_detect": true,
+      "check_fn": "preflight._checkPreImageMissing",
+      "block_on_fail": true,
+      "origin_friction": "f038",
+      "autopoiesis": true
     }
   },
   "l2_warning_checks": {
@@ -175,7 +185,7 @@
     "self_report_enabled": true,
     "auto_encode": true,
     "code_generation": true,
-    "last_evolution": "2026-06-07T08:36:50.521Z",
-    "evolution_count": 6
+    "last_evolution": "2026-06-07T09:52:00.000Z",
+    "evolution_count": 7
   }
 }

@@ -455,6 +455,7 @@ async function main() {
     const knownPatterns = {
       render: { id: "f031", category: "流程自动化", desc: "preflight 拦截导致渲染失败，需人工修复后重跑", resolution: "orchestrator --auto-fix 自动修复 digest/图片/路径等常见问题", rule_id: "preflight_auto_invoke" },
       bundle: { id: "f036", category: "打包", desc: "bundle 阶段失败，通常是图片缺失或路径问题", resolution: "检查 HTML 中的图片路径是否正确，确保所有图片存在", rule_id: "bundle_integrity" },
+      preflight: { id: "f038", category: "图片处理", desc: "preflight 检测到封面图或正文插图缺失/占位，跳过了 dreamina CLI 生图步骤", resolution: "必须使用 dreamina CLI 生成封面和正文插图；紧急情况下可 --skip-image-check 逃逸", rule_id: "pre_image_missing" },
     };
 
     let newCaptures = 0;
