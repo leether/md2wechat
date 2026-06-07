@@ -1,6 +1,6 @@
 {
   "_description": "md2wechat 分层质检规则定义。L1=硬阻塞，L2=警告，L3=模式检查。任何 L1 失败必须阻断流程，L2 失败输出警告但可继续，L3 失败输出人工检查清单。",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "l1_mandatory_checks": {
     "_description": "L1 硬阻塞：任何一项失败，不得进入上传/推送阶段",
     "digest_length": {
