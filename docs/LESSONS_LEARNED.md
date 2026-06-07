@@ -2,42 +2,14 @@
 autopoiesis: true
 memory_type: "living"
 last_updated: "2026-06-07"
-evolution_count: 36
+evolution_count: 8
 friction_points:
-  - id: "f001"
-  - id: "f002"
-  - id: "f003"
-  - id: "f004"
-  - id: "f005"
-  - id: "f006"
-  - id: "f007"
-  - id: "f008"
-  - id: "f009"
-  - id: "f010"
-  - id: "f011"
-  - id: "f012"
-  - id: "f013"
-  - id: "f014"
-  - id: "f015"
-  - id: "f016"
-  - id: "f017"
-  - id: "f018"
-  - id: "f019"
-  - id: "f020"
-  - id: "f021"
-  - id: "f022"
-  - id: "f023"
-  - id: "f024"
-  - id: "f025"
-  - id: "f026"
   - id: "f027"
     category: "内容合规"
     description: "digest 超过 128 字符被微信 API 拒绝"
     resolution: "Step 0 严格控制 summary ≤120 字；orchestrator --auto-fix 自动截断"
     rule_id: "digest_length"
     timestamp: "2026-06-07T05:00:00.000Z"
-  - id: "f028"
-  - id: "f029"
   - id: "f030"
     category: "路径处理"
     description: "bundle 残留旧文件导致推送旧版 HTML"
@@ -64,20 +36,20 @@ friction_points:
     timestamp: "2026-06-07T06:00:00.000Z"
   - id: "f034"
     category: "内容质量"
-    description: "文章主语\"我\"在 AI Agent 视角和用户视角之间漂移，导致读者困惑"
-    resolution: "L3 新增 narrative_perspective 检查：检测\"用户问我\"/\"我想了想\"等 AI 视角表述，提示人工统一主语"
+    description: "文章主语「我」在 AI Agent 视角和用户视角之间漂移，导致读者困惑"
+    resolution: "新增 narrative_perspective L1 检查：检测「用户问我」/「我想了想」等 AI 视角表述"
     rule_id: "narrative_perspective"
     timestamp: "2026-06-07T07:09:00.000Z"
   - id: "f035"
     category: "图片质量"
-    description: "AI 生成的封面图携带模板占位文字（如\"【中文标题放置区】\"），推送后暴露未处理的草稿痕迹"
-    resolution: "L3 新增 cover_placeholder_text 检查：OCR 扫描封面图，检测常见占位符关键词；建议人工确认或重新生成"
+    description: "AI 生成的封面图携带模板占位文字（如「【中文标题放置区】」），推送后暴露未处理的草稿痕迹"
+    resolution: "新增 cover_placeholder_text L1 检查：tesseract OCR 扫描封面图，检测常见占位符关键词"
     rule_id: "cover_placeholder_text"
     timestamp: "2026-06-07T07:09:00.000Z"
   - id: "f036"
     category: "部署传输"
     description: "bundle 目录中的 .env 隐藏文件无法通过 scp * 批量上传到 relay，导致 relay 上凭据缺失推送失败"
-    resolution: "orchestrator 在 bundle 后明确提示单独 scp .env；长期方案：bundle_wechat_article.mjs 生成上传脚本或 orchestrator 自动执行 .env 传输"
+    resolution: "orchestrator --auto-push 自动执行 .env 单独 scp 上传"
     rule_id: "env_relay_transfer"
     timestamp: "2026-06-07T07:11:00.000Z"
 ---
@@ -96,26 +68,18 @@ friction_points:
 ## 摩擦点类别：内容质量
 
 ### f034
-- **描述**：文章主语"我"在 AI Agent 视角和用户视角之间漂移，导致读者困惑
-- **解决**：L3 新增 narrative_perspective 检查：检测"用户问我"/"我想了想"等 AI 视角表述，提示人工统一主语
+- **描述**：文章主语「我」在 AI Agent 视角和用户视角之间漂移，导致读者困惑
+- **解决**：新增 narrative_perspective L1 检查：检测「用户问我」/「我想了想」等 AI 视角表述
 - **关联规则**：`narrative_perspective`
 - **时间**：2026-06-07T07:09:00.000Z
 
 ## 摩擦点类别：图片质量
 
 ### f035
-- **描述**：AI 生成的封面图携带模板占位文字（如"【中文标题放置区】"），推送后暴露未处理的草稿痕迹
-- **解决**：L3 新增 cover_placeholder_text 检查：OCR 扫描封面图，检测常见占位符关键词；建议人工确认或重新生成
+- **描述**：AI 生成的封面图携带模板占位文字（如「【中文标题放置区】」），推送后暴露未处理的草稿痕迹
+- **解决**：新增 cover_placeholder_text L1 检查：tesseract OCR 扫描封面图，检测常见占位符关键词
 - **关联规则**：`cover_placeholder_text`
 - **时间**：2026-06-07T07:09:00.000Z
-
-## 摩擦点类别：路径处理
-
-### f030
-- **描述**：bundle 残留旧文件导致推送旧版 HTML
-- **解决**：bundle_wechat_article.mjs 自动清理输出目录后再复制
-- **关联规则**：`local_path_absence`
-- **时间**：2026-06-07T05:38:48.306Z
 
 ## 摩擦点类别：流程自动化
 
@@ -141,11 +105,19 @@ friction_points:
 - **关联规则**：`cta_integrity`
 - **时间**：2026-06-07T06:00:00.000Z
 
+## 摩擦点类别：路径处理
+
+### f030
+- **描述**：bundle 残留旧文件导致推送旧版 HTML
+- **解决**：bundle_wechat_article.mjs 自动清理输出目录后再复制
+- **关联规则**：`local_path_absence`
+- **时间**：2026-06-07T05:38:48.306Z
+
 ## 摩擦点类别：部署传输
 
 ### f036
 - **描述**：bundle 目录中的 .env 隐藏文件无法通过 scp * 批量上传到 relay，导致 relay 上凭据缺失推送失败
-- **解决**：orchestrator 在 bundle 后明确提示单独 scp .env；长期方案：bundle_wechat_article.mjs 生成上传脚本或 orchestrator 自动执行 .env 传输
+- **解决**：orchestrator --auto-push 自动执行 .env 单独 scp 上传
 - **关联规则**：`env_relay_transfer`
 - **时间**：2026-06-07T07:11:00.000Z
 

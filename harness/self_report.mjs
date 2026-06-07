@@ -265,13 +265,15 @@ export class SelfReport {
     fm["autopoiesis"] = true;
     fm["memory_type"] = "living";
     fm["last_updated"] = new Date().toISOString().slice(0, 10);
-    fm["evolution_count"] = (parseInt(fm["evolution_count"]) || 0) + this.frictionPoints.length;
 
-    // 合并摩擦点
-    const existingFps = Array.isArray(fm["friction_points"]) ? fm["friction_points"] : [];
+    // 合并摩擦点（过滤掉 description 为空的占位符）
+    const existingFps = (Array.isArray(fm["friction_points"]) ? fm["friction_points"] : [])
+      .filter((fp) => fp.description && fp.description !== "undefined" && fp.description !== "");
     const existingIds = new Set(existingFps.map((f) => f.id).filter(Boolean));
 
     for (const fp of this.frictionPoints) {
+      // 跳过无意义的占位符摩擦点
+      if (!fp.description || fp.description === "undefined" || fp.description === "") continue;
       if (!existingIds.has(fp.id)) {
         existingFps.push({
           id: fp.id,
@@ -285,6 +287,8 @@ export class SelfReport {
       }
     }
     fm["friction_points"] = existingFps;
+    // evolution_count 反映实际有效摩擦点数量，而非简单累加
+    fm["evolution_count"] = existingFps.length;
 
     // 生成正文
     const bodyLines = ["# LESSONS_LEARNED — md2wechat 活记忆器官\n"];
