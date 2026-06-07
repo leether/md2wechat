@@ -471,8 +471,14 @@ ssh relay "cd /home/admin/wechat-publish/${account}/$(date +%Y%m%d)_${slug}/v1 &
   --open-comment ${openComment}"`;
 
     info("Push command (copy to terminal):");
+    // ⚠️ f036: scp * 不会复制隐藏文件，必须单独上传 .env
+    const envInBundle = fs.existsSync(path.join(outDir, ".env"));
+    if (envInBundle) {
+      warn("IMPORTANT: scp * does NOT copy hidden files. You must separately scp .env:");
+      console.log(`${C.yellow}  scp ${outDir}/.env relay:/home/admin/wechat-publish/${account}/$(date +%Y%m%d)_${slug}/v1/.env${C.reset}\n`);
+    }
     console.log(`\n${C.cyan}${pushCmd}${C.reset}\n`);
-    logger.record("push", "command_generated", { command: pushCmd });
+    logger.record("push", "command_generated", { command: pushCmd, envReminder: envInBundle });
 
     // 如果配置了本地推送（未来扩展）
     ok("Push command generated. Execute manually or configure relay auto-push.");
