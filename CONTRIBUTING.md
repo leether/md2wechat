@@ -73,7 +73,8 @@ HTML 输出
 ```bash
 node scripts/render_wechat_editorial.mjs \
   --input examples/sample-article.md \
-  --output /tmp/test.html
+  --output /tmp/test.html \
+  --no-preflight
 ```
 
 检查输出 HTML 中：
@@ -81,6 +82,8 @@ node scripts/render_wechat_editorial.mjs \
 - `position:` 出现次数 = 0
 - `filter:` 出现次数 = 0
 - 卡片数与 Markdown 中 `:::wechat-card` 数量一致
+
+完整管线验证请提供封面和真实插图，或对纯文本文章显式使用 `--skip-image-check`。
 
 ### 隐私门禁（硬门禁，提交前必过）
 

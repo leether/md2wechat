@@ -92,21 +92,24 @@ export class SelfReport {
       if (!fp.auto_encode) continue;
       if (!fp.description || fp.description === "undefined") continue;
 
-      const ruleId = fp.rule_id || this._generateRuleId(fp.category);
+      const ruleId = String(fp.rule_id || this._generateRuleId(fp.category)).replace(/[^a-zA-Z0-9_]/g, "_");
       fp.rule_id = ruleId;
 
       // 检查规则是否已存在（代码文件或 JSON 配置）
       const scriptDir = path.dirname(fileURLToPath(import.meta.url));
       const checkFilePath = path.join(scriptDir, "preflight-checks", `${ruleId}.mjs`);
       const l1Exists = this.rules["l1_mandatory_checks"] && this.rules["l1_mandatory_checks"][ruleId];
-      if (fs.existsSync(checkFilePath) || l1Exists) continue;
+      const observationExists = this.rules["observation_checks"] && this.rules["observation_checks"][ruleId];
+      if (fs.existsSync(checkFilePath) || l1Exists || observationExists) continue;
 
       // 生成可执行检查代码
       try {
         const generated = generateCheck(fp);
-        persistCheck(generated);
+        const persisted = persistCheck(generated);
         newRulesCount++;
-        console.log(`[SelfReport] Auto-generated check: ${ruleId} → ${generated.checkType} → ${generated.filePath}`);
+        console.log(`[SelfReport] Auto-generated observation check: ${ruleId} → ${generated.checkType} → ${generated.filePath}`);
+        console.log(`[SelfReport] Companion test: ${persisted.testPath}`);
+        console.log(`[SelfReport] Evolution audit: ${persisted.auditPath}`);
       } catch (e) {
         console.error(`[SelfReport] Failed to generate check for ${ruleId}: ${e.message}`);
       }
@@ -120,7 +123,10 @@ export class SelfReport {
       this.rules["autopoiesis"].auto_encode = true;
       this.rules["autopoiesis"].code_generation = true;
       this.rules["autopoiesis"].last_evolution = new Date().toISOString();
-      this.rules["autopoiesis"].evolution_count = (this.rules["autopoiesis"]?.evolution_count || 0) + newRulesCount;
+      this.rules["autopoiesis"].default_generated_enforcement = "observe";
+      this.rules["autopoiesis"].generated_tests_required = true;
+      this.rules["autopoiesis"].audit_required = true;
+      this.rules["autopoiesis"].rollback_snapshots = true;
       this._saveJson(this.rulesPath, this.rules);
     }
 

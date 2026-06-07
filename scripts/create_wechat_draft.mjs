@@ -1358,9 +1358,6 @@ export function resolveDraftPlan(argv = process.argv.slice(2)) {
 export async function createWechatDraft(argv = process.argv.slice(2)) {
   const plan = resolveDraftPlan(argv);
 
-  // ── 执行环境护栏：检查是否在白名单主机/IP上 ──
-  checkExecutionEnvironment(plan.envPath);
-
   if (plan.help) {
     printHelp([
       "Usage: node scripts/create_wechat_draft.mjs --html <file.html> (--thumb-media-id <media_id> | --thumb-image <path>) [options]",
@@ -1399,6 +1396,9 @@ export async function createWechatDraft(argv = process.argv.slice(2)) {
     ]);
     return 0;
   }
+
+  // ── 执行环境护栏：检查是否在白名单主机/IP上 ──
+  checkExecutionEnvironment(plan.envPath);
 
   const preflightReport = runWechatDraftPreflight(plan);
 

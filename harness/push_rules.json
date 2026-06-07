@@ -181,10 +181,17 @@
       }
     }
   },
+  "observation_checks": {
+    "_description": "Observation 隔离层：self_report/code-generator 新生成的规则默认进入此层。失败只进入报告，不阻断发布；经人工审查、测试和审计后才可提升为 L1。"
+  },
   "autopoiesis": {
     "self_report_enabled": true,
     "auto_encode": true,
     "code_generation": true,
+    "default_generated_enforcement": "observe",
+    "generated_tests_required": true,
+    "audit_required": true,
+    "rollback_snapshots": true,
     "last_evolution": "2026-06-07T09:52:00.000Z",
     "evolution_count": 7
   }

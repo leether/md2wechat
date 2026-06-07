@@ -20,7 +20,7 @@
   "scripts": {
     "render": "node scripts/render_wechat_editorial.mjs",
     "publish": "node scripts/create_wechat_draft.mjs",
-    "check": "node --check scripts/render_wechat_editorial.mjs && node --check scripts/create_wechat_draft.mjs"
+    "check": "find scripts harness -name '*.mjs' -print | sort | xargs -n1 node --check && node harness/test-code-generator-contract.mjs && node harness/run-generated-check-tests.mjs"
   },
   "engines": {
     "node": ">=18.0.0"

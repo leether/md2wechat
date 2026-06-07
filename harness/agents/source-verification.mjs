@@ -14,6 +14,28 @@
 
 import fs from "node:fs";
 
+function decodeHtmlEntities(text) {
+  return text
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'");
+}
+
+function htmlToVisibleText(html) {
+  return decodeHtmlEntities(
+    String(html || "")
+      .replace(/<!--[\s\S]*?-->/g, " ")
+      .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
+}
+
 function extractPreciseNumbers(text) {
   const numbers = [];
 
@@ -67,7 +89,7 @@ function main() {
   }
 
   const ctx = JSON.parse(fs.readFileSync(ctxPath, "utf8"));
-  const html = ctx.html || "";
+  const html = htmlToVisibleText(ctx.html || "");
   const mdPath = ctx.mdPath;
 
   const htmlNumbers = extractPreciseNumbers(html);
