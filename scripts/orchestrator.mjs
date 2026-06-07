@@ -85,6 +85,17 @@ function step(n, title) {
   console.log(`\n${C.bold}${C.cyan}━━━ Step ${n}: ${title} ━━━${C.reset}`);
 }
 
+// ── 从 .env 文件读取指定变量 ──
+function readEnvVar(envPath, key) {
+  try {
+    const content = fs.readFileSync(envPath, "utf8");
+    const match = content.match(new RegExp(`^${key}=(.+)$`, "m"));
+    return match ? match[1].trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── JSONL 日志 ──
 class PipelineLogger {
   constructor(logPath) {
@@ -270,7 +281,63 @@ class AutoHeal {
   }
 }
 
-// ── 解析 preflight JSON 输出 ──
+// ── Step 0: Pre-Render Lint（出口条件自动化）──
+function preRenderLint(mdPath, titleArg) {
+  if (!fs.existsSync(mdPath)) return { ok: true, issues: [] };
+
+  const md = fs.readFileSync(mdPath, "utf8");
+  const issues = [];
+
+  // 1. 破折号检查
+  const emDashCount = (md.match(/——/g) || []).length;
+  if (emDashCount > 0) {
+    issues.push({ level: "L2", id: "pre_emdash", message: `Found ${emDashCount} em dash(es) (——). Replace with comma or delete before rendering.` });
+  }
+
+  // 2. 中文双引号检查
+  const cnQuoteCount = (md.match(/"[^"]*"/g) || []).length;
+  if (cnQuoteCount > 0) {
+    issues.push({ level: "L2", id: "pre_cn_quotes", message: `Found ${cnQuoteCount} Chinese quote pair(s) (""). Replace with 「」or delete.` });
+  }
+
+  // 3. 标题字数检查（优先用 --title 参数，否则取 H1）
+  let title = titleArg || "";
+  if (!title) {
+    const h1Match = md.match(/^#\s+(.+)$/m);
+    if (h1Match) title = h1Match[1].trim();
+  }
+  const titleChars = title.replace(/[^\u4e00-\u9fa5]/g, "").length;
+  if (titleChars > 21) {
+    issues.push({ level: "L2", id: "pre_title_length", message: `Title has ${titleChars} Chinese chars (>21). Use --title to override with a shorter one.` });
+  }
+
+  // 4. summary 字数检查
+  const summaryMatch = md.match(/^summary:\s*(.+)$/m);
+  if (summaryMatch) {
+    const summary = summaryMatch[1].trim();
+    if (summary.length > 120) {
+      issues.push({ level: "L2", id: "pre_summary_length", message: `summary is ${summary.length} chars (>120). Truncate before rendering.` });
+    }
+  } else {
+    issues.push({ level: "L2", id: "pre_summary_missing", message: "Missing summary: in MD first line. digest will fallback to first 54 chars of body." });
+  }
+
+  // 5. 插图检查：正文 > 800 字时至少 1 张图
+  const bodyText = md
+    .replace(/^summary:.*/gm, "")
+    .replace(/^```[\s\S]*?```/gm, "")
+    .replace(/!\[.*?\]\(.*?\)/g, "")
+    .replace(/:::\s*wechat-image[\s\S]*?:::/g, "")
+    .replace(/[#*|`>/\-\[\]\(\)]/g, "")
+    .replace(/\s+/g, "");
+  const bodyChars = bodyText.length;
+  const imgCount = (md.match(/!\[.*?\]\(.*?\)/g) || []).length + (md.match(/:::\s*wechat-image/g) || []).length;
+  if (bodyChars > 800 && imgCount === 0) {
+    issues.push({ level: "L2", id: "pre_image_missing", message: `Body is ~${bodyChars} chars (>800) but no images found. Add at least 1 illustration.` });
+  }
+
+  return { ok: issues.length === 0, issues };
+}
 function parsePreflightReport(stdout) {
   try {
     // 尝试从 stdout 的最后几行找 JSON
@@ -308,6 +375,7 @@ function main() {
   const qrPath = args.qr ? path.resolve(args.qr) : null;
   const openComment = args["open-comment"] !== undefined ? args["open-comment"] : "1";
   const cropSpec = args["crop-235-1"];
+  const autoPush = args["auto-push"] || false;
 
   if (!fs.existsSync(inputPath)) {
     err(`Input file not found: ${inputPath}`);
@@ -341,6 +409,21 @@ function main() {
 
   const renderOut = path.join(workDir, `${slug}.html`);
   const lintOut = path.join(workDir, `${slug}-lint.json`);
+
+  // ═══════════════════════════════════════════════════════════════
+  // Step 0: Pre-Render Lint（SKILL.md 出口条件自动化）
+  // ═══════════════════════════════════════════════════════════════
+  step(0, "Pre-Render Lint");
+  const preLint = preRenderLint(inputPath, title);
+  if (preLint.issues.length > 0) {
+    for (const issue of preLint.issues) {
+      warn(`[${issue.id}] ${issue.message}`);
+    }
+    logger.record("pre_render_lint", "warning", { issues: preLint.issues });
+  } else {
+    ok("Pre-render lint passed");
+    logger.record("pre_render_lint", "success");
+  }
 
   // ═══════════════════════════════════════════════════════════════
   // Step 1: Render
@@ -456,26 +539,107 @@ function main() {
     warn("Dry run mode — skipping WeChat API push");
     logger.record("push", "skipped", { reason: "dry_run" });
   } else {
-    // 这里需要 relay 推送。orchestrator 可以输出推送命令供用户复制执行
-    // 未来可以集成 create_wechat_draft.mjs 直接推送
-    const pushCmd = `ssh relay "mkdir -p /home/admin/wechat-publish/${account}/$(date +%Y%m%d)_${slug}/v1" && \\
-scp ${outDir}/* relay:/home/admin/wechat-publish/${account}/$(date +%Y%m%d)_${slug}/v1/ && \\
-ssh relay "cd /home/admin/wechat-publish/${account}/$(date +%Y%m%d)_${slug}/v1 && \\
-  node /home/admin/wechat-publish/${account}/shared/scripts/create_wechat_draft.mjs \\
-  --html ${path.basename(renderOut)} \\
-  ${thumbImage ? `--thumb-image ${path.basename(thumbImage)}` : ""} \\
-  --lint-report ${path.basename(lintOut)} \\
-  --title '${title || slug}' \\
-  --author '${author}' \\
-  --account ${account} \\
-  --open-comment ${openComment}"`;
+    // ⚠️ f035: 提醒检查封面图占位文字
+    if (thumbImage) {
+      warn("COVER CHECK: Please visually inspect the cover image for placeholder/template text:");
+      console.log(`${C.yellow}  ${thumbImage}${C.reset}`);
+      console.log(`${C.dim}  If you see placeholder text (e.g. \"【中文标题放置区】\"), fix it before pushing.${C.reset}\n`);
+    }
 
-    info("Push command (copy to terminal):");
-    console.log(`\n${C.cyan}${pushCmd}${C.reset}\n`);
-    logger.record("push", "command_generated", { command: pushCmd });
+    const relayHost = readEnvVar(envPath, "WECHAT_RELAY_HOST") || "relay";
+    const relayRoot = readEnvVar(envPath, "WECHAT_RELAY_PUBLISH_ROOT") || `/home/admin/wechat-publish`;
+    let remoteDir = `${relayRoot}/${account}/$(date +%Y%m%d)_${slug}/v1`;
 
-    // 如果配置了本地推送（未来扩展）
-    ok("Push command generated. Execute manually or configure relay auto-push.");
+    if (autoPush) {
+      step(3, "Push to WeChat Draft (AUTO)");
+      info(`Relay host: ${relayHost}`);
+
+      // 查询已有版本号并递增
+      info("Checking existing versions on relay...");
+      const verResult = spawnSync("ssh", [relayHost, `ls -d ${relayRoot}/${account}/$(date +%Y%m%d)_${slug}/v* 2>/dev/null | wc -l | tr -d ' '`], { encoding: "utf8", stdio: "pipe" });
+      const existingVers = parseInt(verResult.stdout?.trim() || "0", 10) || 0;
+      const nextVer = existingVers + 1;
+      remoteDir = `${relayRoot}/${account}/$(date +%Y%m%d)_${slug}/v${nextVer}`;
+      info(`Next version: v${nextVer} (${existingVers} existing)`);
+
+      info(`Remote dir: ${remoteDir}`);
+
+      info("Creating remote directory...");
+      const mkdirResult = spawnSync("ssh", [relayHost, `mkdir -p ${remoteDir}`], { encoding: "utf8", stdio: "pipe" });
+      if (mkdirResult.status !== 0) {
+        err(`SSH mkdir failed: ${mkdirResult.stderr || mkdirResult.stdout}`);
+        logger.record("push", "failed", { reason: "ssh_mkdir_failed", stderr: mkdirResult.stderr });
+        return 6;
+      }
+
+      info("Uploading bundle files...");
+      const scpResult = spawnSync("scp", [`${outDir}/*`, `${relayHost}:${remoteDir}/`], { encoding: "utf8", stdio: "pipe", shell: true });
+      if (scpResult.status !== 0) {
+        err(`SCP upload failed: ${scpResult.stderr || scpResult.stdout}`);
+        logger.record("push", "failed", { reason: "scp_failed", stderr: scpResult.stderr });
+        return 6;
+      }
+
+      const envInBundle = fs.existsSync(path.join(outDir, ".env"));
+      if (envInBundle) {
+        info("Uploading .env separately...");
+        const scpEnvResult = spawnSync("scp", [path.join(outDir, ".env"), `${relayHost}:${remoteDir}/.env`], { encoding: "utf8", stdio: "pipe" });
+        if (scpEnvResult.status !== 0) {
+          err(`SCP .env failed: ${scpEnvResult.stderr || scpEnvResult.stdout}`);
+          logger.record("push", "failed", { reason: "scp_env_failed", stderr: scpEnvResult.stderr });
+          return 6;
+        }
+      }
+
+      info("Executing create_wechat_draft.mjs on relay...");
+      const remoteCmd = [
+        relayHost,
+        `cd ${remoteDir} && node ${relayRoot}/${account}/shared/scripts/create_wechat_draft.mjs --html ${path.basename(renderOut)} ${thumbImage ? `--thumb-image ${path.basename(thumbImage)}` : ""} --lint-report ${path.basename(lintOut)} --title '\${title || slug}' --author '\${author}' --account ${account} --open-comment ${openComment}`,
+      ];
+      const pushResult = spawnSync("ssh", remoteCmd, { encoding: "utf8", stdio: "pipe", maxBuffer: 1024 * 1024 });
+
+      const pushStdout = pushResult.stdout || "";
+      const pushStderr = pushResult.stderr || "";
+      for (const line of pushStdout.split("\n").filter((l) => l.trim())) {
+        console.log(`  ${C.dim}${line.slice(0, 200)}${C.reset}`);
+      }
+      if (pushStderr) {
+        for (const line of pushStderr.split("\n").filter((l) => l.trim())) {
+          console.log(`  ${C.red}${line.slice(0, 200)}${C.reset}`);
+        }
+      }
+
+      let pushJson = null;
+      try {
+        const jsonLines = pushStdout.split("\n").filter((l) => l.trim().startsWith("{") || l.trim().startsWith("["));
+        for (const jl of jsonLines.reverse()) {
+          try { pushJson = JSON.parse(jl); break; } catch {}
+        }
+      } catch {}
+
+      if (pushResult.status !== 0 || !pushJson || pushJson.errcode !== 0) {
+        err(`Remote push failed (exit ${pushResult.status}). Check relay logs.`);
+        logger.record("push", "failed", { reason: "remote_push_failed", stdout_preview: pushStdout.slice(0, 500), stderr_preview: pushStderr.slice(0, 500) });
+        return 6;
+      }
+
+      ok(`Push succeeded. media_id: ${pushJson.media_id || "(unknown)"}`);
+      logger.record("push", "success", { media_id: pushJson.media_id, thumb_media_id: pushJson.thumb_media_id });
+
+    } else {
+      step(3, "Push to WeChat Draft (MANUAL)");
+      const pushCmd = `ssh ${relayHost} "mkdir -p ${remoteDir}" && \scp ${outDir}/* ${relayHost}:${remoteDir}/ && \ssh ${relayHost} "cd ${remoteDir} && \  node ${relayRoot}/${account}/shared/scripts/create_wechat_draft.mjs \  --html ${path.basename(renderOut)} \  ${thumbImage ? `--thumb-image ${path.basename(thumbImage)}` : ""} \  --lint-report ${path.basename(lintOut)} \  --title '\${title || slug}' \  --author '\${author}' \  --account ${account} \  --open-comment ${openComment}"`;
+
+      info("Push command (copy to terminal):");
+      const envInBundle = fs.existsSync(path.join(outDir, ".env"));
+      if (envInBundle) {
+        warn("IMPORTANT: scp * does NOT copy hidden files. You must separately scp .env:");
+        console.log(`${C.yellow}  scp ${outDir}/.env ${relayHost}:${remoteDir}/.env${C.reset}\n`);
+      }
+      console.log(`\n${C.cyan}${pushCmd}${C.reset}\n`);
+      logger.record("push", "command_generated", { command: pushCmd, envReminder: envInBundle });
+      ok("Push command generated. Execute manually or add --auto-push to execute automatically.");
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -523,6 +687,28 @@ ssh relay "cd /home/admin/wechat-publish/${account}/$(date +%Y%m%d)_${slug}/v1 &
   console.log(`  Failures:  ${summary.failures}`);
   console.log(`  Auto-fixes: ${summary.fixes}`);
   console.log(`  Status:    ${overallSuccess ? C.green + "SUCCESS" + C.reset : C.red + "FAILED" + C.reset}`);
+
+  // ═══════════════════════════════════════════════════════════════
+  // Step 5: Audit Log Verification (harness — 不得跳过)
+  // ═══════════════════════════════════════════════════════════════
+  if (overallSuccess) {
+    console.log(`\n${C.bold}${C.cyan}━━━ Step 5: Audit Log Verification ━━━${C.reset}`);
+    console.log(`${C.dim}After pushing, the WeChat draft API returns an Audit Log. Verify each item:${C.reset}`);
+    console.log(`
+  [回检清单] — 拿到 Audit Log 后逐项核对：
+    img标签数      ≥ 1（封面+插图+二维码）
+    CDN图片数      = img标签数（全部上传微信 CDN）
+    h2标题数       > 0
+    卡片数         = MD 中 :::wechat-card 数量
+    引用块数       = MD 中 > 数量
+    style属性数    > 50
+    position       = 0
+    filter         = 0
+    【渲染质检】   必须存在（含 --lint-report）
+`);
+    console.log(`${C.yellow}⚠️  IMPORTANT: Before reporting "done", call Skill('skill-compliance-harness') in WorkBuddy to run the full compliance check.${C.reset}`);
+    console.log(`${C.dim}   errcode: 0 ≠ 完成。必须逐项核对上方清单。${C.reset}`);
+  }
 
   return overallSuccess ? 0 : 5;
 }

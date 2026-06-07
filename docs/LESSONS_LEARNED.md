@@ -2,278 +2,152 @@
 autopoiesis: true
 memory_type: "living"
 last_updated: "2026-06-07"
-evolution_count: 35
+evolution_count: 36
 friction_points:
   - id: "f001"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f002"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f003"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f004"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f005"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f006"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f007"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f008"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f009"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f010"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f011"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f012"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f013"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f014"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f015"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f016"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f017"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f018"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f019"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f020"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f021"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f022"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f023"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f024"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f025"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f026"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f027"
-    category: "undefined"
-    description: ""
-    timestamp: ""
+    category: "内容合规"
+    description: "digest 超过 128 字符被微信 API 拒绝"
+    resolution: "Step 0 严格控制 summary ≤120 字；orchestrator --auto-fix 自动截断"
+    rule_id: "digest_length"
+    timestamp: "2026-06-07T05:00:00.000Z"
   - id: "f028"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f029"
-    category: "undefined"
-    description: ""
-    timestamp: ""
   - id: "f030"
-    category: "undefined"
-    description: ""
-    timestamp: ""
+    category: "路径处理"
+    description: "bundle 残留旧文件导致推送旧版 HTML"
+    resolution: "bundle_wechat_article.mjs 自动清理输出目录后再复制"
+    rule_id: "local_path_absence"
+    timestamp: "2026-06-07T05:38:48.306Z"
   - id: "f031"
-    category: "undefined"
-    description: ""
-    timestamp: ""
+    category: "流程自动化"
+    description: "preflight 依赖 SKILL.md 人工提醒才能被调用，经常忘记跑导致 relay 上才发现问题"
+    resolution: "render_wechat_editorial.mjs 渲染完成后自动 spawn preflight.mjs，--no-preflight 可跳过"
+    rule_id: "preflight_auto_invoke"
+    timestamp: "2026-06-07T06:00:00.000Z"
   - id: "f032"
-    category: "undefined"
-    description: ""
-    timestamp: ""
+    category: "知识管理"
+    description: "历史教训记在静态文档里，运行时无法感知，同样的坑反复踩"
+    resolution: "创建 memory-loader.mjs，渲染器和 preflight 运行时自动加载 LESSONS_LEARNED.md，打印风险提示并附加到 L3 清单"
+    rule_id: "living_memory_loader"
+    timestamp: "2026-06-07T06:00:00.000Z"
   - id: "f033"
-    category: "undefined"
-    description: ""
-    timestamp: ""
+    category: "质检自动化"
+    description: "L3 检查全部为人工清单，CTA 完整性和图片数匹配容易遗漏"
+    resolution: "CTA 完整性改为自动检测关键词和 qr.png；图片数匹配改为比较 MD 和 HTML 中的图片数量；原文核对保持人工"
+    rule_id: "cta_integrity"
+    timestamp: "2026-06-07T06:00:00.000Z"
+  - id: "f034"
+    category: "内容质量"
+    description: "文章主语\"我\"在 AI Agent 视角和用户视角之间漂移，导致读者困惑"
+    resolution: "L3 新增 narrative_perspective 检查：检测\"用户问我\"/\"我想了想\"等 AI 视角表述，提示人工统一主语"
+    rule_id: "narrative_perspective"
+    timestamp: "2026-06-07T07:09:00.000Z"
+  - id: "f035"
+    category: "图片质量"
+    description: "AI 生成的封面图携带模板占位文字（如\"【中文标题放置区】\"），推送后暴露未处理的草稿痕迹"
+    resolution: "L3 新增 cover_placeholder_text 检查：OCR 扫描封面图，检测常见占位符关键词；建议人工确认或重新生成"
+    rule_id: "cover_placeholder_text"
+    timestamp: "2026-06-07T07:09:00.000Z"
+  - id: "f036"
+    category: "部署传输"
+    description: "bundle 目录中的 .env 隐藏文件无法通过 scp * 批量上传到 relay，导致 relay 上凭据缺失推送失败"
+    resolution: "orchestrator 在 bundle 后明确提示单独 scp .env；长期方案：bundle_wechat_article.mjs 生成上传脚本或 orchestrator 自动执行 .env 传输"
+    rule_id: "env_relay_transfer"
+    timestamp: "2026-06-07T07:11:00.000Z"
 ---
 
 # LESSONS_LEARNED — md2wechat 活记忆器官
 > 本文档是 md2wechat SKILL 的「活记忆器官」。每次 pipeline 运行产生摩擦时，SelfReport 会自动更新此文档。摩擦点与 `harness/push_rules.json` 中的规则通过 `rule_id` 形成闭环。
 
-## 摩擦点类别：未分类
-
-### f001
-- **描述**：undefined
-- **时间**：unknown
-
-### f002
-- **描述**：undefined
-- **时间**：unknown
-
-### f003
-- **描述**：undefined
-- **时间**：unknown
-
-### f004
-- **描述**：undefined
-- **时间**：unknown
-
-### f005
-- **描述**：undefined
-- **时间**：unknown
-
-### f006
-- **描述**：undefined
-- **时间**：unknown
-
-### f007
-- **描述**：undefined
-- **时间**：unknown
-
-### f008
-- **描述**：undefined
-- **时间**：unknown
-
-### f009
-- **描述**：undefined
-- **时间**：unknown
-
-### f010
-- **描述**：undefined
-- **时间**：unknown
-
-### f011
-- **描述**：undefined
-- **时间**：unknown
-
-### f012
-- **描述**：undefined
-- **时间**：unknown
-
-### f013
-- **描述**：undefined
-- **时间**：unknown
-
-### f014
-- **描述**：undefined
-- **时间**：unknown
-
-### f015
-- **描述**：undefined
-- **时间**：unknown
-
-### f016
-- **描述**：undefined
-- **时间**：unknown
-
-### f017
-- **描述**：undefined
-- **时间**：unknown
-
-### f018
-- **描述**：undefined
-- **时间**：unknown
-
-### f019
-- **描述**：undefined
-- **时间**：unknown
-
-### f020
-- **描述**：undefined
-- **时间**：unknown
-
-### f021
-- **描述**：undefined
-- **时间**：unknown
-
-### f022
-- **描述**：undefined
-- **时间**：unknown
-
-### f023
-- **描述**：undefined
-- **时间**：unknown
-
-### f024
-- **描述**：undefined
-- **时间**：unknown
-
-### f025
-- **描述**：undefined
-- **时间**：unknown
-
-### f026
-- **描述**：undefined
-- **时间**：unknown
+## 摩擦点类别：内容合规
 
 ### f027
-- **描述**：undefined
-- **时间**：unknown
+- **描述**：digest 超过 128 字符被微信 API 拒绝
+- **解决**：Step 0 严格控制 summary ≤120 字；orchestrator --auto-fix 自动截断
+- **关联规则**：`digest_length`
+- **时间**：2026-06-07T05:00:00.000Z
 
-### f028
-- **描述**：undefined
-- **时间**：unknown
+## 摩擦点类别：内容质量
 
-### f029
-- **描述**：undefined
-- **时间**：unknown
+### f034
+- **描述**：文章主语"我"在 AI Agent 视角和用户视角之间漂移，导致读者困惑
+- **解决**：L3 新增 narrative_perspective 检查：检测"用户问我"/"我想了想"等 AI 视角表述，提示人工统一主语
+- **关联规则**：`narrative_perspective`
+- **时间**：2026-06-07T07:09:00.000Z
+
+## 摩擦点类别：图片质量
+
+### f035
+- **描述**：AI 生成的封面图携带模板占位文字（如"【中文标题放置区】"），推送后暴露未处理的草稿痕迹
+- **解决**：L3 新增 cover_placeholder_text 检查：OCR 扫描封面图，检测常见占位符关键词；建议人工确认或重新生成
+- **关联规则**：`cover_placeholder_text`
+- **时间**：2026-06-07T07:09:00.000Z
+
+## 摩擦点类别：路径处理
 
 ### f030
-- **描述**：undefined
-- **时间**：unknown
+- **描述**：bundle 残留旧文件导致推送旧版 HTML
+- **解决**：bundle_wechat_article.mjs 自动清理输出目录后再复制
+- **关联规则**：`local_path_absence`
+- **时间**：2026-06-07T05:38:48.306Z
+
+## 摩擦点类别：流程自动化
 
 ### f031
-- **描述**：undefined
-- **时间**：unknown
+- **描述**：preflight 依赖 SKILL.md 人工提醒才能被调用，经常忘记跑导致 relay 上才发现问题
+- **解决**：render_wechat_editorial.mjs 渲染完成后自动 spawn preflight.mjs，--no-preflight 可跳过
+- **关联规则**：`preflight_auto_invoke`
+- **时间**：2026-06-07T06:00:00.000Z
+
+## 摩擦点类别：知识管理
 
 ### f032
-- **描述**：undefined
-- **时间**：unknown
+- **描述**：历史教训记在静态文档里，运行时无法感知，同样的坑反复踩
+- **解决**：创建 memory-loader.mjs，渲染器和 preflight 运行时自动加载 LESSONS_LEARNED.md，打印风险提示并附加到 L3 清单
+- **关联规则**：`living_memory_loader`
+- **时间**：2026-06-07T06:00:00.000Z
+
+## 摩擦点类别：质检自动化
 
 ### f033
-- **描述**：undefined
-- **时间**：unknown
+- **描述**：L3 检查全部为人工清单，CTA 完整性和图片数匹配容易遗漏
+- **解决**：CTA 完整性改为自动检测关键词和 qr.png；图片数匹配改为比较 MD 和 HTML 中的图片数量；原文核对保持人工
+- **关联规则**：`cta_integrity`
+- **时间**：2026-06-07T06:00:00.000Z
+
+## 摩擦点类别：部署传输
+
+### f036
+- **描述**：bundle 目录中的 .env 隐藏文件无法通过 scp * 批量上传到 relay，导致 relay 上凭据缺失推送失败
+- **解决**：orchestrator 在 bundle 后明确提示单独 scp .env；长期方案：bundle_wechat_article.mjs 生成上传脚本或 orchestrator 自动执行 .env 传输
+- **关联规则**：`env_relay_transfer`
+- **时间**：2026-06-07T07:11:00.000Z
 
 ---
 

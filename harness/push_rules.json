@@ -1,6 +1,6 @@
 {
   "_description": "md2wechat 分层质检规则定义。L1=硬阻塞，L2=警告，L3=模式检查。任何 L1 失败必须阻断流程，L2 失败输出警告但可继续，L3 失败输出人工检查清单。",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "l1_mandatory_checks": {
     "_description": "L1 硬阻塞：任何一项失败，不得进入上传/推送阶段",
     "digest_length": {
@@ -178,12 +178,51 @@
       ],
       "origin_friction": "f030",
       "autopoiesis": true
+    },
+    "narrative_perspective": {
+      "id": "narrative_perspective",
+      "name": "叙事视角一致性",
+      "description": "文章主语\"我\"应在全文中保持统一视角，不得在中途切换为 AI Agent 或用户视角",
+      "auto_detect": true,
+      "check_fn": "preflight._checkNarrativePerspective",
+      "manual_checklist": [
+        "全文搜索\"用户问我\"/\"我想了想\"等 AI 视角表述",
+        "确认所有\"我\"均指向同一主体（公众号作者）",
+        "涉及对话场景时，明确标注说话者身份"
+      ],
+      "origin_friction": "f034",
+      "autopoiesis": true
+    },
+    "cover_placeholder_text": {
+      "id": "cover_placeholder_text",
+      "name": "封面图占位文字",
+      "description": "AI 生成的封面图可能携带模板占位文字（如\"【中文标题放置区】\"），需人工确认清理",
+      "auto_detect": false,
+      "manual_checklist": [
+        "目视检查封面图是否存在占位文字或模板痕迹",
+        "如有占位文字，使用图像编辑工具去除或重新生成封面",
+        "确认封面图上的文字均为最终文案"
+      ],
+      "origin_friction": "f035",
+      "autopoiesis": true
+    },
+    "env_relay_transfer": {
+      "id": "env_relay_transfer",
+      "name": "[AUTO] .env 上传提醒",
+      "description": "scp * 不会复制隐藏文件，bundle 中的 .env 需要单独上传到 relay",
+      "auto_detect": false,
+      "manual_checklist": [
+        "执行完 bundle scp 后，单独 scp .env 到 relay 目标目录",
+        "确认 relay 上的 .env 包含 WECHAT_<ACCOUNT>_APP_ID 和 WECHAT_<ACCOUNT>_APP_SECRET"
+      ],
+      "origin_friction": "f036",
+      "autopoiesis": true
     }
   },
   "autopoiesis": {
     "self_report_enabled": true,
     "auto_encode": true,
-    "last_evolution": "2026-06-07T05:38:48.307Z",
-    "evolution_count": 1
+    "last_evolution": "2026-06-07T07:11:00.000Z",
+    "evolution_count": 4
   }
 }

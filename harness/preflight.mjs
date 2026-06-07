@@ -456,6 +456,68 @@ function checkImageCdnCount(html, mdPath, rules) {
   return { passed: true, level: "L3", id: "image_cdn_count_match", imgCount, cdnCount, mdImgCount };
 }
 
+function checkNarrativePerspective(html, mdPath, rules) {
+  // 在 MD 中检测 AI 视角的表述（HTML 中可能已丢失原始文本）
+  let md = "";
+  if (mdPath && fs.existsSync(mdPath)) {
+    md = fs.readFileSync(mdPath, "utf8");
+  }
+  // 也可以在 HTML 中检测（如果 MD 不存在）
+  const text = md || html;
+
+  // AI 视角信号词：明确把"用户"作为对话另一方的表述
+  const aiPerspectivePatterns = [
+    /用户问我/,
+    /用户问/,
+    /用户说/,
+    /用户表示/,
+    /用户让我/,
+    /用户要求我/,
+    /用户给了/,
+    /用户提交/,
+  ];
+
+  const matches = [];
+  for (const pattern of aiPerspectivePatterns) {
+    const found = text.match(pattern);
+    if (found) {
+      // 提取匹配位置前后各 20 字作为上下文
+      const idx = text.indexOf(found[0]);
+      const ctx = text.slice(Math.max(0, idx - 20), idx + found[0].length + 20).replace(/\n/g, " ");
+      matches.push({ pattern: found[0], context: ctx });
+    }
+  }
+
+  if (matches.length > 0) {
+    return {
+      passed: false,
+      level: "L3",
+      id: "narrative_perspective",
+      message: `Detected ${matches.length} AI-perspective phrase(s) in article. Ensure all "我" refer to the same subject (the author).`,
+      auto_detect: true,
+      details: { matches },
+    };
+  }
+
+  return { passed: true, level: "L3", id: "narrative_perspective" };
+}
+
+function checkCoverPlaceholder(coverPath, rules) {
+  // OQ1 裁决：不引入 OCR，用人工程序清单 + 增强提示
+  const hasCover = coverPath && fs.existsSync(coverPath);
+
+  return {
+    passed: false, // L3 人工确认项，始终需要人工检查
+    level: "L3",
+    id: "cover_placeholder_text",
+    message: hasCover
+      ? `Cover image detected at ${coverPath}. Please visually inspect for placeholder/template text (e.g. "【中文标题放置区】").`
+      : "No cover image provided. If generating cover with AI, visually inspect for placeholder text before pushing.",
+    auto_detect: false,
+    details: { coverPath, hasCover },
+  };
+}
+
 // ── 主检查流程 ──
 
 export function runPreflight(opts) {
@@ -501,6 +563,8 @@ export function runPreflight(opts) {
     checkCardCount(html, mdPath, rules.l3_pattern_checks?.card_count_match || {}),
     checkTableCount(html, mdPath, rules.l3_pattern_checks?.table_count_match || {}),
     checkImageCdnCount(html, mdPath, rules.l3_pattern_checks?.image_cdn_count_match || {}),
+    checkNarrativePerspective(html, mdPath, rules.l3_pattern_checks?.narrative_perspective || {}),
+    checkCoverPlaceholder(coverPath, rules.l3_pattern_checks?.cover_placeholder_text || {}),
   ];
 
   // ── 活记忆附加：将最近摩擦点加入 L3 人工确认清单 ──

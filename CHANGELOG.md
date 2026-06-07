@@ -7,6 +7,32 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-07
+
+### Added
+
+- **Orchestrator 一键调度**：`scripts/orchestrator.mjs` 把 render → preflight → bundle → push 压缩成单个命令，含 `--auto-fix` 自动修复和 `--dry-run` 流程验证
+- **自动推送（--auto-push）**：orchestrator 支持自动通过系统 `ssh`/`scp` 完成远程目录创建、bundle 上传、远程执行 `create_wechat_draft.mjs`，无需手动复制命令
+- **渲染前自动质检（pre-render lint）**：orchestrator 在调用渲染器前自动检查破折号/中文双引号/标题字数（≤21）/summary 字数（≤120）/正文>800字无插图
+- **Preflight L3 检查**：
+  - `narrative_perspective`：检测正文中 AI 视角表述（如"用户问我"），产出人工程序清单
+  - `cover_placeholder_text`：强制要求人工确认封面图无占位文字
+- **Relay 版本号自动递增**：orchestrator `--auto-push` 自动查询远程已有版本目录，递增生成 `v{N+1}`，避免手动指定
+- **活记忆器官运行时加载**：`harness/memory-loader.mjs` 在渲染器启动时自动打印 `docs/LESSONS_LEARNED.md` 中的历史摩擦点风险提示
+- **结构化 pipeline 日志**：每次运行写入 `.md2wechat-pipeline.jsonl`，作为 `self_report.mjs` 自动分析和 LESSONS_LEARNED 更新的输入源
+- **Final Report Step 5 提醒**：orchestrator 在最终报告后强制输出 Harness 核查提醒，阻断"忘记调用 skill-compliance-harness"的摩擦点
+
+### Changed
+
+- **SKILL.md 流程升级**：新增 Step 0.5 Orchestrator 自动调度，明确 `--auto-push` 参数和典型使用流程
+- **Preflight 规则版本**：`harness/push_rules.json` 升级到 `1.2.0`，新增 narrative_perspective 与 cover_placeholder_text 规则定义
+- **版本号同步**：`package.json` 从 `0.2.0` 同步到 `0.4.0`（CHANGELOG 0.3.0 已发布但 package.json 未同步）
+
+### Fixed
+
+- **self_report YAML 解析 bug**：`_parseYaml()` 无法解析列表项内嵌套字段，导致摩擦点 description 被覆盖为 `undefined`；新增嵌套字段解析并跳过空 description
+- **orchestrator 推送块替换残留**：修复字符串替换后残留旧代码片段导致的语法错误
+
 ## [0.3.0] - 2026-06-04
 
 ### Added
@@ -92,7 +118,8 @@
 - 标题和 digest 的 GEO 优化：从纯悬念型改为「搜索词 + 悬念」双轨结构
 - 渲染时 `--env` 参数缺失导致 footer 静默缺失的问题已在 SKILL.md 中强调
 
-[Unreleased]: https://github.com/leether/md2wechat/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/leether/md2wechat/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/leether/md2wechat/releases/tag/v0.4.0
 [0.3.0]: https://github.com/leether/md2wechat/releases/tag/v0.3.0
 [0.2.0]: https://github.com/leether/md2wechat/releases/tag/v0.2.0
 [0.1.0]: https://github.com/leether/md2wechat/releases/tag/v0.1.0

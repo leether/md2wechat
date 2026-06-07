@@ -152,6 +152,22 @@ export class SelfReport {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith("#")) continue;
 
+      // 列表项内的嵌套字段（缩进的 key: value，无 - 前缀）
+      const nestedMatch = line.match(/^\s+([a-zA-Z_][a-zA-Z0-9_]*):\s*(.*)$/);
+      if (nestedMatch && currentList !== null && currentList.length > 0) {
+        const lastItem = currentList[currentList.length - 1];
+        if (lastItem && typeof lastItem === "object") {
+          let v = nestedMatch[2].trim();
+          if (v === "null") v = null;
+          else if (v === "true") v = true;
+          else if (v === "false") v = false;
+          else if (/^\d+$/.test(v)) v = parseInt(v);
+          else v = v.replace(/^"|"$/g, "").replace(/^'|'$/g, "");
+          lastItem[nestedMatch[1]] = v;
+        }
+        continue;
+      }
+
       // 顶层 key: value
       const topMatch = line.match(/^([a-zA-Z_][a-zA-Z0-9_]*):\s*(.*)$/);
       if (topMatch && !line.startsWith("  ")) {
@@ -277,7 +293,10 @@ export class SelfReport {
     for (const fp of existingFps) {
       const cat = fp.category || "未分类";
       byCategory[cat] = byCategory[cat] || [];
-      byCategory[cat].push(fp);
+      // 跳过无意义的占位符摩擦点（description 为空或 undefined）
+      if (fp.description && fp.description !== "undefined" && fp.description !== "") {
+        byCategory[cat].push(fp);
+      }
     }
 
     for (const cat of Object.keys(byCategory).sort()) {
