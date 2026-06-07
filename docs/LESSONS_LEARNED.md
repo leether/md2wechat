@@ -2,7 +2,7 @@
 autopoiesis: true
 memory_type: "living"
 last_updated: "2026-06-07"
-evolution_count: 33
+evolution_count: 30
 friction_points:
   - id: "f001"
     category: "undefined"
@@ -126,24 +126,6 @@ friction_points:
     resolution: "bundle_wechat_article.mjs 自动清理输出目录后再复制"
     rule_id: "local_path_absence"
     timestamp: "2026-06-07T05:38:48.306Z"
-  - id: "f031"
-    category: "流程自动化"
-    description: "preflight 依赖 SKILL.md 人工提醒才能被调用，经常忘记跑导致 relay 上才发现问题"
-    resolution: "render_wechat_editorial.mjs 渲染完成后自动 spawn preflight.mjs，--no-preflight 可跳过"
-    rule_id: "preflight_auto_invoke"
-    timestamp: "2026-06-07T06:00:00.000Z"
-  - id: "f032"
-    category: "知识管理"
-    description: "历史教训记在静态文档里，运行时无法感知，同样的坑反复踩"
-    resolution: "创建 memory-loader.mjs，渲染器和 preflight 运行时自动加载 LESSONS_LEARNED.md，打印风险提示并附加到 L3 清单"
-    rule_id: "living_memory_loader"
-    timestamp: "2026-06-07T06:00:00.000Z"
-  - id: "f033"
-    category: "质检自动化"
-    description: "L3 检查全部为人工清单，CTA 完整性和图片数匹配容易遗漏"
-    resolution: "CTA 完整性改为自动检测关键词和 qr.png；图片数匹配改为比较 MD 和 HTML 中的图片数量；原文核对保持人工"
-    rule_id: "cta_integrity"
-    timestamp: "2026-06-07T06:00:00.000Z"
 ---
 
 # LESSONS_LEARNED — md2wechat 活记忆器官
@@ -274,24 +256,6 @@ friction_points:
 - **解决**：bundle_wechat_article.mjs 自动清理输出目录后再复制
 - **关联规则**：`local_path_absence`
 - **时间**：2026-06-07T05:38:48.306Z
-
-### f031
-- **描述**：preflight 依赖 SKILL.md 人工提醒才能被调用，经常忘记跑导致 relay 上才发现问题
-- **解决**：render_wechat_editorial.mjs 渲染完成后自动 spawn preflight.mjs，`--no-preflight` 可跳过
-- **关联规则**：`preflight_auto_invoke`
-- **时间**：2026-06-07T06:00:00.000Z
-
-### f032
-- **描述**：历史教训记在静态文档里，运行时无法感知，同样的坑反复踩
-- **解决**：创建 memory-loader.mjs，渲染器和 preflight 运行时自动加载 LESSONS_LEARNED.md，打印风险提示并附加到 L3 清单
-- **关联规则**：`living_memory_loader`
-- **时间**：2026-06-07T06:00:00.000Z
-
-### f033
-- **描述**：L3 检查全部为人工清单，CTA 完整性和图片数匹配容易遗漏
-- **解决**：CTA 完整性改为自动检测关键词和 qr.png；图片数匹配改为比较 MD 和 HTML 中的图片数量；原文核对保持人工
-- **关联规则**：`cta_integrity`
-- **时间**：2026-06-07T06:00:00.000Z
 
 ---
 
