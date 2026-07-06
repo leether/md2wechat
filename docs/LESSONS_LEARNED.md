@@ -1,7 +1,7 @@
 ---
 autopoiesis: true
 memory_type: "living"
-last_updated: "2026-06-07"
+last_updated: "2026-07-05"
 evolution_count: 9
 friction_points:
   - id: "f027"
@@ -54,7 +54,7 @@ friction_points:
     timestamp: "2026-06-07T07:11:00.000Z"
   - id: "f038"
     category: "图片处理"
-    description: "preflight 检测到封面图或正文插图缺失/占位，跳过了 dreamina CLI 生图步骤"
+    description: "preflight 检测到封面图或正文插图缺失/占位，跳过了图片生成步骤"
     resolution: "新增 pre_image_missing L1 检查：强制检测封面图和正文插图存在性；支持 --skip-image-check 或 frontmatter no_image:true 逃逸"
     rule_id: "pre_image_missing"
     timestamp: "2026-06-07T09:52:00.000Z"
@@ -78,6 +78,14 @@ friction_points:
 - **解决**：新增 narrative_perspective L1 检查：检测「用户问我」/「我想了想」等 AI 视角表述
 - **关联规则**：`narrative_perspective`
 - **时间**：2026-06-07T07:09:00.000Z
+
+## 摩擦点类别：图片处理
+
+### f038
+- **描述**：preflight 检测到封面图或正文插图缺失/占位，跳过了图片生成步骤
+- **解决**：新增 pre_image_missing L1 检查：强制检测封面图和正文插图存在性；支持 --skip-image-check 或 frontmatter no_image:true 逃逸
+- **关联规则**：`pre_image_missing`
+- **时间**：2026-06-07T09:52:00.000Z
 
 ## 摩擦点类别：图片质量
 
@@ -126,14 +134,6 @@ friction_points:
 - **解决**：orchestrator --auto-push 自动执行 .env 单独 scp 上传
 - **关联规则**：`env_relay_transfer`
 - **时间**：2026-06-07T07:11:00.000Z
-
-## 摩擦点类别：图片处理
-
-### f038
-- **描述**：preflight 检测到封面图或正文插图缺失/占位，跳过了 dreamina CLI 生图步骤
-- **解决**：新增 pre_image_missing L1 检查：强制检测封面图和正文插图存在性；支持 --skip-image-check 或 frontmatter no_image:true 逃逸
-- **关联规则**：`pre_image_missing`
-- **时间**：2026-06-07T09:52:00.000Z
 
 ---
 

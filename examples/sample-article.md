@@ -56,7 +56,7 @@ npm install
 node scripts/render_wechat_editorial.mjs \
   --input article.md \
   --output article.html \
-  --footer-qr ./assets/qr.png
+  --footer-qr ./assets/footer-qr.png
 ```
 
 ## 第六个章节：数据表格

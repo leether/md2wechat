@@ -1,0 +1,47 @@
+# 失败案例：没有 md2wechat Skill 时模型出错的场景
+
+## 案例 1：khazix-writer 尾部模板未删除
+
+场景：使用 khazix-writer 改写文章后，尾部残留「投稿或爆料，请联系邮箱：xxx」整行
+错误行为：模型没有删除尾部模板，直接推送，导致草稿箱文章包含无关联系方式
+正确行为：Step 0 改写完成后，必须检查并删除尾部模板整行
+
+---
+
+## 案例 2：破折号导致 lint 报错
+
+场景：Step 0 改写后的 MD 包含中文破折号 `——` 和中文双引号 `""`
+错误行为：模型等到 Step 1 渲染时才被 lint 拦下，浪费一次渲染
+正确行为：Step 0 改写时主动替换 `——` → `，` `""` → `「」`
+
+---
+
+## 案例 3：Audit Log 只看 errcode: 0 就认为完成
+
+场景：Step 4 推送成功后，模型看到 `errcode: 0` 就告诉用户「完成」
+错误行为：没有逐行核对 Audit Log，导致 img: 0 / CDN: 0 等红灯被忽略
+正确行为：必须用 `scripts/preflight-check.mjs` 解析 Audit Log，逐行核对所有检查项
+
+---
+
+## 案例 4：封面图超 2MB 导致微信 API 拒绝
+
+场景：AI 生成的封面图通常 5–10MB，直接推送被微信 API 拒绝
+错误行为：模型没有压缩封面图，或者压缩后改了文件名导致 HTML 引用不匹配
+正确行为：Step 2 必须用 `sips -Z 2000` 压缩封面图，并覆盖原文件（不改名）
+
+---
+
+## 案例 5：`.env` 没有单独 scp 导致 footer 缺失
+
+场景：Step 2.5 Bundle 后，模型用 `scp *` 上传文件
+错误行为：`scp *` 不会复制隐藏文件 `.env`，导致推送后 footer（二维码 + CTA）缺失
+正确行为：必须单独 `scp .env relay:.../`
+
+---
+
+## 案例 6：skill-compliance-harness 被跳过
+
+场景：Step 5 完成前，模型没有加载 skill-compliance-harness 就告诉用户「完成」
+错误行为：跳过合规检查，导致潜在问题没有被发现
+正确行为：Step 5 必须加载 skill-compliance-harness，并逐条核验

@@ -1,8 +1,8 @@
-Place your QR code image here as `qr.png`.
+Place your QR code image here as `footer-qr.png`.
 
 Then configure in `.env`:
 ```
-FOOTER_QR_PATH=<PIPELINE_HOME>/assets/qr.png
+FOOTER_QR_PATH=<PIPELINE_HOME>/assets/footer-qr.png
 FOOTER_CTA=你的 CTA 文案
 FOOTER_QR_TITLE=群名称
 FOOTER_QR_HINT=扫码加入

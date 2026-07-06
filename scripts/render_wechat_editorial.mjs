@@ -33,6 +33,38 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
+function parseFrontMatter(markdown) {
+  const lines = markdown.split(/\r?\n/);
+  const data = {};
+  let bodyStart = 0;
+  if (lines[0] && lines[0].trim() === "---") {
+    let endIdx = -1;
+    for (let i = 1; i < lines.length; i += 1) {
+      if (lines[i].trim() === "---") {
+        endIdx = i;
+        break;
+      }
+    }
+    if (endIdx !== -1) {
+      for (let i = 1; i < endIdx; i += 1) {
+        const line = lines[i];
+        const idx = line.indexOf(":");
+        if (idx !== -1) {
+          const key = line.slice(0, idx).trim();
+          let value = line.slice(idx + 1).trim();
+          if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+            value = value.slice(1, -1);
+          }
+          data[key] = value;
+        }
+      }
+      bodyStart = endIdx + 1;
+    }
+  }
+  const body = lines.slice(bodyStart).join("\n").replace(/^\s*\n/, "");
+  return { body, data };
+}
+
 function parseInline(markdown) {
   const placeholders = [];
   let html = escapeHtml(markdown);
@@ -1203,12 +1235,14 @@ function lintGeoCompliance(markdown, title = "") {
   const l1 = [];
   const l2 = [];
 
-  // L1: 摘要缺失
+  // L1: 摘要缺失（支持 YAML front matter 和旧格式）
+  const { data: geoFrontMatter } = parseFrontMatter(markdown);
+  const summaryFromFrontMatter = geoFrontMatter.summary || "";
   const summaryMatch = markdown.match(/^summary:\s*(.+)/m);
-  if (!summaryMatch) {
+  const summary = summaryFromFrontMatter || (summaryMatch ? summaryMatch[1].trim() : "");
+  if (!summary) {
     l1.push("MD 第一行缺少 summary: xxx，AI 搜索无法提取文章摘要");
   } else {
-    const summary = summaryMatch[1].trim();
 
     // L2: 摘要过短
     if (summary.length < 20) {
@@ -1314,7 +1348,8 @@ function formatGeoReport(result) {
 }
 
 export function renderWechatEditorial(markdown, options = {}) {
-  const { blocks, summary } = parseMarkdown(markdown);
+  const { blocks, summary: parsedSummary } = parseMarkdown(markdown);
+  const summary = options.summary || parsedSummary || "";
   const bodyContent = renderBody(blocks, {
     kicker: options.kicker || "",
     footerNote: options.footerNote || "",
@@ -1411,7 +1446,8 @@ function main(argv = process.argv.slice(2)) {
   }
 
   const outputPath = normalizeOutputPath(inputPath, args.output);
-  const markdown = fs.readFileSync(absoluteInput, "utf8");
+  const rawMarkdown = fs.readFileSync(absoluteInput, "utf8");
+  const { body: markdown, data: frontMatter } = parseFrontMatter(rawMarkdown);
 
   // ── 活记忆风险提示（自动加载历史教训） ──
   const livingMemory = loadLivingMemory();
@@ -1493,7 +1529,8 @@ function main(argv = process.argv.slice(2)) {
 
   // ── GEO 合规检查（生成式引擎优化） ──
   if (!args["no-geo-lint"]) {
-    const geoResult = lintGeoCompliance(markdown, inferredTitle);
+    const geoMarkdown = rawMarkdown || markdown;
+    const geoResult = lintGeoCompliance(geoMarkdown, inferredTitle);
     const geoPassed = geoResult.l1.length === 0 && !(args["strict-geo"] && geoResult.l2.length > 0);
     lintReport.geo = {
       passed: geoPassed,
@@ -1524,6 +1561,7 @@ function main(argv = process.argv.slice(2)) {
     footerQrAlt: args["footer-qr-alt"] ? String(args["footer-qr-alt"]) : "",
     footerQrTitle: footerQrTitle,
     footerQrHint: footerQrHint,
+    summary: frontMatter.summary || "",
   });
 
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
