@@ -5,6 +5,9 @@ node_modules/
 .env
 .env.local
 .env.*.local
+.env.*
+!.env.example
+*.bak
 
 # OS
 .DS_Store
@@ -24,4 +27,5 @@ output/
 
 # Account-specific data (not for sharing)
 accounts/
+articles/
 runs/

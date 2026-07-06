@@ -168,7 +168,7 @@ node scripts/render_wechat_editorial.mjs \
   --env .env
 # ⚠️ --env 必须显式指定，否则 footer（二维码+CTA）不会注入
 # footer 参数从 .env 自动读取，也可用命令行参数覆盖：
-#   --footer-qr ./assets/qr.png --footer-qr-title "交流群" --footer-qr-hint "扫码加入" --footer-cta "和我们一起探索"
+#   --footer-qr ./assets/footer-qr.png --footer-qr-title "示例社群" --footer-qr-hint "扫码加入" --footer-cta "和我们一起探索"
 ```
 
 渲染器自动运行两层 lint：
@@ -177,9 +177,9 @@ node scripts/render_wechat_editorial.mjs \
 
 **尾部 CTA + 二维码**：在 `.env` 中配置 `FOOTER_QR_PATH` / `FOOTER_CTA` / `FOOTER_QR_TITLE` / `FOOTER_QR_HINT`，渲染时自动附加。不配置则文章无 footer，CTA 护栏降级为警告（不阻止渲染）。如文章明确不需要，加 `--no-footer`。
 
-渲染效果示例（真实二维码）：
+渲染效果示例（示例二维码）：
 
-<p align="center"><img src="assets/qr.png" alt="二维码" width="200"></p>
+<p align="center"><img src="assets/footer-qr.png" alt="二维码" width="200"></p>
 
 <p align="center"><em>文章尾部自动附加的 CTA + 二维码区块</em></p>
 
@@ -497,7 +497,7 @@ export PIPELINE_HOME=/path/to/md2wechat
 
 ## 交流群
 
-<p align="center"><img src="assets/qr.png" alt="微信群二维码" width="200"></p>
+<p align="center"><img src="assets/footer-qr.png" alt="示例二维码" width="200"></p>
 
 <p align="center">公众号排版遇到问题？想交流 Markdown 写作？<br>扫码加入交流群，一起折腾。</p>
 

@@ -87,7 +87,7 @@
   - Step 3 relay 推送改为引用 `.env` 变量 + 版本化目录
   - 已知坑新增 #20（Harness 不可跳过）、#21（禁止 inline import）、#22（不推荐跳过 lint）
   - 依赖声明增加 `skill-compliance-harness`
-- **relay 推送脚本路径改为占位符**：`wechat-draft-relay.mjs` 中的 `/home/admin/...` 硬编码路径替换为 `/path/to/your/relay/directory`
+- **relay 推送脚本路径改为占位符**：`wechat-draft-relay.mjs` 中的旧硬编码服务器路径替换为 `/path/to/your/relay/directory`
 
 ### Fixed
 

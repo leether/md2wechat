@@ -4,15 +4,15 @@ import { buildManualRelayCommand } from "../scripts/orchestrator.mjs";
 
 const result = buildManualRelayCommand({
   relayHost: "relay-host",
-  relayRoot: "/home/admin/wechat-publish",
+  relayRoot: "/tmp/wechat-publish",
   account: "MY_ACCOUNT",
-  remoteDir: "/home/admin/wechat-publish/MY_ACCOUNT/20260607_slug/v1",
+  remoteDir: "/tmp/wechat-publish/MY_ACCOUNT/20260607_slug/v1",
   outDir: "/tmp/wechat bundle",
   renderOut: "/tmp/article.html",
   lintOut: "/tmp/article-lint.json",
   title: "Title With Spaces",
   slug: "slug",
-  author: "新褶",
+  author: "公众号作者",
   openComment: "1",
   thumbImage: "/tmp/cover.png",
   cropSpec: "0_0.0035_1_0.9965",
