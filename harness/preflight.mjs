@@ -41,6 +41,7 @@ Optional:
   --digest <text>          Article digest (overrides HTML <!-- WECHAT_SUMMARY -->)
   --cover <path>           Cover image path (for size/aspect checks)
   --rules <path>           push_rules.json path (default: ./push_rules.json)
+  --allow-local-image-paths Allow existing local image paths during pre-bundle render checks
   --skip-image-check       Skip pre_image_missing L1 check (for text-only articles)
   --json                   Output machine-readable JSON only
   --help                   Show this help
@@ -85,6 +86,32 @@ function extractLocalImagePaths(html, htmlDir) {
     paths.push(resolved);
   }
   return paths;
+}
+
+function extractImageRefs(html, htmlDir) {
+  const refs = [];
+  const regex = /<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi;
+  let m;
+  while ((m = regex.exec(html)) !== null) {
+    const tag = m[0];
+    const src = m[1];
+    if (src.startsWith("http://") || src.startsWith("https://") || src.startsWith("data:")) {
+      refs.push({ tag, src, kind: "remote", resolved: null, exists: true });
+      continue;
+    }
+    const resolved = path.isAbsolute(src) ? src : path.resolve(htmlDir, src);
+    refs.push({ tag, src, kind: "local", resolved, exists: fs.existsSync(resolved) });
+  }
+  return refs;
+}
+
+function isQrImageRef(ref) {
+  const src = String(ref?.src || "").toLowerCase();
+  const tag = String(ref?.tag || "").toLowerCase();
+  if (src.includes("mmbiz.qpic.cn")) return true;
+  if (/(^|[\\/_.-])qr([\\/_.-]|$)/i.test(src)) return true;
+  if (/(二维码|扫码|qr code|qrcode)/i.test(tag)) return true;
+  return false;
 }
 
 // ── 从 Markdown 提取 frontmatter ──
@@ -305,7 +332,7 @@ function checkAuthorLength(authorArg, rules) {
   return { passed: true, level: "L1", id: "author_length", actual: len };
 }
 
-function checkLocalPaths(html, rules) {
+function checkLocalPaths(html, htmlDir, rules, options = {}) {
   const matches = [];
   // 匹配本地绝对路径模式
   const patterns = [
@@ -321,6 +348,27 @@ function checkLocalPaths(html, rules) {
     }
   }
   if (matches.length > 0) {
+    if (options.allowLocalImagePaths) {
+      const localRefs = extractImageRefs(html, htmlDir).filter((ref) => ref.kind === "local" && path.isAbsolute(ref.src));
+      const missing = localRefs.filter((ref) => !ref.exists);
+      if (missing.length === 0) {
+        return {
+          passed: true,
+          level: "L1",
+          id: "local_path_absence",
+          bundleSafe: true,
+          message: `Found ${matches.length} local absolute path(s), all existing and allowed for pre-bundle render checks.`,
+          matches: matches.slice(0, 5),
+        };
+      }
+      return {
+        passed: false,
+        level: "L1",
+        id: "local_path_absence",
+        message: `Found ${missing.length} missing local image path(s) during pre-bundle render checks.`,
+        matches: missing.map((ref) => `src="${ref.src}"`).slice(0, 5),
+      };
+    }
     return {
       passed: false,
       level: "L1",
@@ -477,10 +525,11 @@ function checkSummaryQuality(html, rules) {
 
 // ── L3 检查实现 ──
 
-function checkCtaIntegrity(html, rules) {
+function checkCtaIntegrity(html, htmlDir, rules) {
   const ctaKeywords = ["扫码", "加入", "交流群", "关注", "点赞", "在看", "转发", "推荐", "星标"];
   const hasCtaText = ctaKeywords.some((kw) => html.includes(kw));
-  const hasQr = html.includes("qr.png") || html.includes("mmbiz.qpic.cn");
+  const imageRefs = extractImageRefs(html, htmlDir);
+  const hasQr = imageRefs.some(isQrImageRef);
   const hasFooterRegion = html.includes("footer") || html.includes("cta") || html.includes("qr");
 
   if (!hasCtaText && !hasQr) {
@@ -547,13 +596,39 @@ function checkTableCount(html, mdPath, rules) {
   return { passed: true, level: "L1", id: "table_count_match", htmlCount: htmlTableCount, mdCount: mdTableCount };
 }
 
-function checkImageCdnCount(html, mdPath, rules) {
+function checkImageCdnCount(html, htmlDir, mdPath, rules, options = {}) {
   const imgCount = (html.match(/<img/g) || []).length;
   const cdnCount = (html.match(/mmbiz\.qpic\.cn/g) || []).length;
 
   // 本地 preflight 阶段：检查本地路径残留
   const localPatternCount = (html.match(/src=["']\//g) || []).length;
   if (localPatternCount > 0) {
+    if (options.allowLocalImagePaths) {
+      const localRefs = extractImageRefs(html, htmlDir).filter((ref) => ref.kind === "local");
+      const missing = localRefs.filter((ref) => !ref.exists);
+      if (missing.length === 0) {
+        return {
+          passed: true,
+          level: "L1",
+          id: "image_cdn_count_match",
+          bundleSafe: true,
+          message: `Found ${localPatternCount} local image path(s), all existing and allowed before bundle.`,
+          imgCount,
+          cdnCount,
+          localCount: localPatternCount,
+        };
+      }
+      return {
+        passed: false,
+        level: "L1",
+        id: "image_cdn_count_match",
+        message: `Found ${missing.length} missing local image path(s).`,
+        imgCount,
+        cdnCount,
+        localCount: localPatternCount,
+        missing: missing.map((ref) => ref.src).slice(0, 5),
+      };
+    }
     return {
       passed: false,
       level: "L1",
@@ -772,6 +847,7 @@ export async function runPreflight(opts) {
     digest,
     coverPath,
     rulesPath,
+    allowLocalImagePaths,
     skipImageCheck,
   } = opts;
 
@@ -790,13 +866,13 @@ export async function runPreflight(opts) {
     checkDigestLength(html, digest, rules.l1_mandatory_checks?.digest_length || {}),
     checkTitleLength(html, title, rules.l1_mandatory_checks?.title_length || {}),
     checkAuthorLength(author, rules.l1_mandatory_checks?.author_length || {}),
-    checkLocalPaths(html, rules.l1_mandatory_checks?.local_path_absence || {}),
+    checkLocalPaths(html, htmlDir, rules.l1_mandatory_checks?.local_path_absence || {}, { allowLocalImagePaths }),
     checkImageSizes(html, htmlDir, coverPath, rules.l1_mandatory_checks?.image_size || {}),
     checkHtmlCompliance(html, rules.l1_mandatory_checks?.html_compliance || {}),
-    checkCtaIntegrity(html, rules.l1_mandatory_checks?.cta_integrity || {}),
+    checkCtaIntegrity(html, htmlDir, rules.l1_mandatory_checks?.cta_integrity || {}),
     checkCardCount(html, mdPath, rules.l1_mandatory_checks?.card_count_match || {}),
     checkTableCount(html, mdPath, rules.l1_mandatory_checks?.table_count_match || {}),
-    checkImageCdnCount(html, mdPath, rules.l1_mandatory_checks?.image_cdn_count_match || {}),
+    checkImageCdnCount(html, htmlDir, mdPath, rules.l1_mandatory_checks?.image_cdn_count_match || {}, { allowLocalImagePaths }),
     checkNarrativePerspective(html, mdPath, rules.l1_mandatory_checks?.narrative_perspective || {}),
     checkCoverPlaceholder(coverPath, rules.l1_mandatory_checks?.cover_placeholder_text || {}),
     checkPreImageMissing(html, htmlDir, mdPath, coverPath, rules.l1_mandatory_checks?.pre_image_missing || {}, skipImageCheck),
@@ -1006,6 +1082,7 @@ async function main() {
     digest: args.digest,
     coverPath: args.cover,
     rulesPath: args.rules,
+    allowLocalImagePaths: args["allow-local-image-paths"],
     skipImageCheck: args["skip-image-check"],
   });
 

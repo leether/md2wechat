@@ -42,19 +42,21 @@ Optional:
   --title <text>           Article title (overrides H1 in MD)
   --author <text>          Article author (default: WECHAT_DEFAULT_AUTHOR or \"公众号作者\")
   --env <path>             .env file path (default: ./.env)
-  --out-dir <dir>          Bundle output directory (default: /tmp/wechat-<slug>)
+  --out-dir <dir>          Bundle output directory (default: <article-dir>/publish/vN/bundle)
   --thumb-image <path>     Cover image path (for WeChat draft)
   --qr <path>              QR code image path
   --dry-run                Run full pipeline but skip WeChat API push
   --auto-fix               Automatically fix L1 preflight failures
   --skip-image-check       Skip pre_image_missing L1 check (for text-only articles)
   --no-geo-lint           Skip SEO/GE0 compliance L1/L2 checks
-  --no-write-lessons       Run self_report without writing LESSONS_LEARNED or generated rules
+  --no-write-lessons       Run self_report without writing LESSONS_LEARNED or generated rules (default)
+  --write-lessons          Allow self_report to update md2wechat lessons
   --open-comment <0|1>     Enable/disable comments (default: 1)
   --crop-235-1 <spec>      Cover crop spec (e.g. 0_0.0035_1_0.9965)
   --help                   Show this help
 
 Pipeline:
+  Step 0: publish doctor  →  account/env/assets/relay readiness
   Step 1: render_wechat_editorial.mjs  →  HTML + lint report
   Step 2: preflight (auto-invoked by renderer)  →  L1/L2/L3 checks
   Step 3: auto-fix (if --auto-fix)  →  digest truncation / image compression
@@ -99,6 +101,14 @@ function readEnvVar(envPath, key) {
   }
 }
 
+function normalizeWechatAccountName(account) {
+  return String(account || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toUpperCase();
+}
+
 export function shellQuote(value = "") {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
 }
@@ -108,6 +118,88 @@ function formatLocalDateStamp(date = new Date()) {
   const mm = String(date.getMonth() + 1).padStart(2, "0");
   const dd = String(date.getDate()).padStart(2, "0");
   return `${yyyy}${mm}${dd}`;
+}
+
+export function resolvePipelinePaths({ inputPath, outDirArg = "" }) {
+  const workDir = path.dirname(inputPath);
+  const slug = path.basename(inputPath, ".md").replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, "-").slice(0, 30);
+  let archiveDir;
+  let outDir;
+
+  if (outDirArg) {
+    outDir = path.resolve(outDirArg);
+    archiveDir = path.dirname(outDir);
+  } else {
+    const publishRoot = path.join(workDir, "publish");
+    let version = 1;
+    while (fs.existsSync(path.join(publishRoot, `v${version}`))) {
+      version += 1;
+    }
+    archiveDir = path.join(publishRoot, `v${version}`);
+    outDir = path.join(archiveDir, "bundle");
+  }
+
+  return {
+    workDir,
+    slug,
+    archiveDir,
+    outDir,
+    logPath: path.join(workDir, ".md2wechat-pipeline.jsonl"),
+    renderOut: path.join(archiveDir, `${slug}.html`),
+    lintOut: path.join(archiveDir, `${slug}-lint.json`),
+  };
+}
+
+function runPublishDoctor({ inputPath, envPath, account, autoPush, dryRun, thumbImage, qrPath }) {
+  const errors = [];
+  const warnings = [];
+
+  if (!fs.existsSync(inputPath)) {
+    errors.push(`input file missing: ${inputPath}`);
+  }
+  if (!fs.existsSync(envPath)) {
+    errors.push(`env file missing: ${envPath}`);
+  }
+
+  const normalized = normalizeWechatAccountName(account);
+  const appIdKey = normalized && normalized !== "DEFAULT" && normalized !== "PRIMARY" ? `WECHAT_${normalized}_APP_ID` : "WECHAT_MP_APP_ID";
+  const appSecretKey = normalized && normalized !== "DEFAULT" && normalized !== "PRIMARY" ? `WECHAT_${normalized}_APP_SECRET` : "WECHAT_MP_APP_SECRET";
+  if (fs.existsSync(envPath)) {
+    if (!readEnvVar(envPath, appIdKey)) errors.push(`missing credential key in env: ${appIdKey}`);
+    if (!readEnvVar(envPath, appSecretKey)) errors.push(`missing credential key in env: ${appSecretKey}`);
+
+    const footerQr = qrPath || readEnvVar(envPath, "FOOTER_QR_PATH");
+    if (footerQr) {
+      const resolvedQr = path.resolve(path.dirname(envPath), footerQr);
+      if (!fs.existsSync(footerQr) && !fs.existsSync(resolvedQr)) {
+        errors.push(`footer QR image missing: ${footerQr}`);
+      }
+      if (!/(^|[\\/_.-])qr([\\/_.-]|$)/i.test(path.basename(footerQr))) {
+        warnings.push(`footer QR filename does not include "qr"; older preflight versions may not detect it: ${path.basename(footerQr)}`);
+      }
+    } else {
+      warnings.push("no --qr or FOOTER_QR_PATH configured; CTA footer may be absent");
+    }
+
+    if (autoPush && !dryRun) {
+      for (const key of ["WECHAT_RELAY_HOST", "WECHAT_RELAY_PUBLISH_ROOT", "WECHAT_RELAY_SCRIPTS_DIR"]) {
+        if (!readEnvVar(envPath, key)) errors.push(`missing relay key in env for --auto-push: ${key}`);
+      }
+    }
+  }
+
+  if (thumbImage) {
+    if (!fs.existsSync(thumbImage)) {
+      errors.push(`cover image missing: ${thumbImage}`);
+    } else {
+      const size = fs.statSync(thumbImage).size;
+      if (size > 2097152) errors.push(`cover image exceeds 2MB: ${thumbImage}`);
+    }
+  } else {
+    warnings.push("no --thumb-image provided; a placeholder cover may be generated by lower-level push");
+  }
+
+  return { errors, warnings, credentialKeys: [appIdKey, appSecretKey] };
 }
 
 export function buildManualRelayCommand({
@@ -457,19 +549,19 @@ function main() {
   const inputPath = path.resolve(args.input || args._[0]);
   const account = args.account;
   const title = args.title;
-  const envPath = path.resolve(args.env || path.join(PIPELINE_HOME, ".env"));
+  const envPath = path.resolve(args.env || path.join(process.cwd(), ".env"));
   const author = args.author || readEnvVar(envPath, "WECHAT_DEFAULT_AUTHOR") || "公众号作者";
   const dryRun = args["dry-run"] || false;
   const autoFix = args["auto-fix"] || false;
-  const thumbImage = args["thumb-image"] ? args["thumb-image"] : null;
-  const qrPath = args.qr ? args.qr : null;
+  const thumbImage = args["thumb-image"] ? path.resolve(args["thumb-image"]) : null;
+  const qrPath = args.qr ? path.resolve(args.qr) : null;
   const openComment = args["open-comment"] !== undefined ? args["open-comment"] : "1";
   const cropSpec = args["crop-235-1"];
   const autoPush = args["auto-push"] || false;
   const skipImageCheck = args["skip-image-check"] || false;
   const noGeoLint = args["no-geo-lint"] || false;
   const noWritingLint = args["no-writing-lint"] || false;
-  const noWriteLessons = args["no-write-lessons"] || false;
+  const noWriteLessons = args["no-write-lessons"] || !args["write-lessons"];
 
   if (!fs.existsSync(inputPath)) {
     err(`Input file not found: ${inputPath}`);
@@ -481,10 +573,9 @@ function main() {
   }
 
   // 工作目录和日志
-  const workDir = path.dirname(inputPath);
-  const slug = path.basename(inputPath, ".md").replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, "-").slice(0, 30);
-  const outDir = args["out-dir"] || path.join("/tmp", `wechat-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${slug}`);
-  const logPath = path.join(workDir, ".md2wechat-pipeline.jsonl");
+  const paths = resolvePipelinePaths({ inputPath, outDirArg: args["out-dir"] || "" });
+  const { workDir, slug, archiveDir, outDir, logPath, renderOut, lintOut } = paths;
+  fs.mkdirSync(archiveDir, { recursive: true });
   // 清空旧日志，避免累积
   if (fs.existsSync(logPath)) {
     fs.writeFileSync(logPath, "", "utf8");
@@ -499,15 +590,42 @@ function main() {
   console.log(`${C.dim}Author:  ${author}${C.reset}`);
   console.log(`${C.dim}Dry-run: ${dryRun}${C.reset}`);
   console.log(`${C.dim}Auto-fix: ${autoFix}${C.reset}`);
+  console.log(`${C.dim}Archive: ${archiveDir}${C.reset}`);
   console.log(`${C.dim}Log:     ${logPath}${C.reset}`);
 
-  const renderOut = path.join(workDir, `${slug}.html`);
-  const lintOut = path.join(workDir, `${slug}-lint.json`);
+  // ═══════════════════════════════════════════════════════════════
+  // Step 0: Publish Doctor（发布前硬依赖检查，不输出 secret）
+  // ═══════════════════════════════════════════════════════════════
+  step(0, "Publish Doctor");
+  const doctor = runPublishDoctor({
+    inputPath,
+    envPath,
+    account,
+    autoPush,
+    dryRun,
+    thumbImage,
+    qrPath,
+  });
+  for (const item of doctor.warnings) warn(item);
+  if (doctor.errors.length > 0) {
+    for (const item of doctor.errors) err(item);
+    logger.record("publish_doctor", "failed", {
+      errors: doctor.errors,
+      warnings: doctor.warnings,
+      credential_keys_checked: doctor.credentialKeys,
+    });
+    return 1;
+  }
+  logger.record("publish_doctor", "success", {
+    warnings: doctor.warnings,
+    credential_keys_checked: doctor.credentialKeys,
+  });
+  ok("Publish doctor passed");
 
   // ═══════════════════════════════════════════════════════════════
   // Step 0: Pre-Render Lint（SKILL.md 出口条件自动化）
   // ═══════════════════════════════════════════════════════════════
-  step(0, "Pre-Render Lint");
+  step("0.5", "Pre-Render Lint");
   const preLint = preRenderLint(inputPath, title);
   if (preLint.issues.length > 0) {
     for (const issue of preLint.issues) {
@@ -530,6 +648,7 @@ function main() {
     "--lint-report-out", lintOut,
   ];
   if (title) renderArgs.push("--title", title);
+  if (qrPath) renderArgs.push("--footer-qr", qrPath);
   if (thumbImage) renderArgs.push("--preflight-cover", thumbImage);
   if (skipImageCheck) renderArgs.push("--skip-image-check");
   if (noGeoLint) renderArgs.push("--no-geo-lint");
@@ -552,6 +671,7 @@ function main() {
       [
         "--html", renderOut,
         "--md", inputPath,
+        "--allow-local-image-paths",
         ...(thumbImage ? ["--cover", thumbImage] : []),
         ...(skipImageCheck ? ["--skip-image-check"] : []),
         "--json",

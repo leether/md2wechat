@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { countMarkdownTables, countWechatCardDirectives } from "./preflight.mjs";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { countMarkdownTables, countWechatCardDirectives, runPreflight } from "./preflight.mjs";
 import { extractPreciseNumbers, htmlToVisibleText } from "./agents/source-verification.mjs";
 
 const markdown = `
@@ -52,5 +55,40 @@ assert.equal(values.includes("23.5%"), true);
 assert.equal(values.includes("v2.1"), true);
 assert.equal(values.includes("99.9%"), false);
 assert.equal(values.includes("v9.9.9"), false);
+
+const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "md2wechat-preflight-"));
+try {
+  const qrPath = path.join(tmpRoot, "ai-world.jpg");
+  const htmlPath = path.join(tmpRoot, "article.html");
+  const mdPath = path.join(tmpRoot, "article.md");
+  fs.writeFileSync(qrPath, Buffer.alloc(8192, 1));
+  fs.writeFileSync(mdPath, "---\nno_image: true\n---\n\n扫码加入讨论。", "utf8");
+  fs.writeFileSync(
+    htmlPath,
+    `<html><body><p>扫码加入讨论。</p><img src="${qrPath}" alt="AI大世界二维码"></body></html>`,
+    "utf8",
+  );
+
+  const blocked = await runPreflight({
+    htmlPath,
+    mdPath,
+    allowLocalImagePaths: false,
+    skipImageCheck: true,
+  });
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.l1.failures.some((item) => item.id === "local_path_absence"), true);
+
+  const allowed = await runPreflight({
+    htmlPath,
+    mdPath,
+    allowLocalImagePaths: true,
+    skipImageCheck: true,
+  });
+  assert.equal(allowed.ok, true);
+  const ctaResult = allowed.l1.failures.find((item) => item.id === "cta_integrity");
+  assert.equal(ctaResult, undefined);
+} finally {
+  fs.rmSync(tmpRoot, { recursive: true, force: true });
+}
 
 console.log("Preflight fixture tests passed.");
