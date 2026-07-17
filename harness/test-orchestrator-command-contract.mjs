@@ -22,6 +22,10 @@ const result = buildManualRelayCommand({
   author: "公众号作者",
   openComment: "1",
   digest: "短摘要：必须原样传到 relay。",
+  sourcePath: "/tmp/article source.md",
+  archiveDir: "/tmp/article-publish/v1",
+  catalogPath: "/tmp/article repo/CATALOG.md",
+  catalogSlug: "enterprise-ai-carrier",
   thumbImage: "/tmp/cover.png",
   cropSpec: "0_0.0035_1_0.9965",
   envInBundle: true,
@@ -35,6 +39,12 @@ assert.match(result.remoteDraftCmd, /--thumb-image 'cover\.png'/);
 assert.match(result.remoteDraftCmd, /--crop-235-1 '0_0\.0035_1_0\.9965'/);
 assert.match(result.remoteDraftCmd, /--title 'Title With Spaces'/);
 assert.match(result.remoteDraftCmd, /--digest '短摘要：必须原样传到 relay。'/);
+assert.match(result.remoteDraftCmd, /--audit-out 'audit\.log'/);
+assert.match(result.remoteDraftCmd, /--push-result-out 'push-result\.json'/);
+assert.match(result.remoteDraftCmd, /--source-path '\/tmp\/article source\.md'/);
+assert.match(result.command, /push-result\.json/);
+assert.match(result.command, /audit\.log/);
+assert.match(result.command, /update_wechat_catalog\.mjs/);
 assert.doesNotMatch(result.command, /\\scp|\\ssh|\\  node/);
 
 assert.equal(
@@ -58,6 +68,8 @@ try {
   assert.equal(first.outDir, path.join(articleDir, "publish", "v1", "bundle"));
   assert.equal(first.renderOut, path.join(articleDir, "publish", "v1", "enterprise-ai-carrier.html"));
   assert.equal(first.lintOut, path.join(articleDir, "publish", "v1", "enterprise-ai-carrier-lint.json"));
+  assert.equal(first.auditOut, path.join(articleDir, "publish", "v1", "audit.log"));
+  assert.equal(first.pushResultOut, path.join(articleDir, "publish", "v1", "push-result.json"));
 
   fs.mkdirSync(path.join(articleDir, "publish", "v1"), { recursive: true });
   const second = resolvePipelinePaths({ inputPath: articlePath });

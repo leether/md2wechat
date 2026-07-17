@@ -17,7 +17,7 @@
 
 **Gotcha #G05**: `summary:` 是 GEO 第一依据 — 必须写成「AI 可直接引用的答案片段」（含核心结论 + 具体论据），不能只概括大意；≤ 120 字。
 
-**Gotcha #G31**: 连续参考资料 bullet 会被段落长度检查合并 — 「参考资料」这类连续 `- link` 列表，每条之间留一个空行；否则可能被 L1 超长段落误伤。
+**Gotcha #G34**: 连续参考资料 bullet 会被段落长度检查合并 — 「参考资料」这类连续 `- link` 列表，每条之间留一个空行；否则可能被 L1 超长段落误伤。
 
 ---
 
@@ -33,9 +33,9 @@
 
 **Gotcha #G10**: 卡片内部不支持表格 — `:::wechat-card` 里的 `|...|` 表格语法不会被解析，会被当成普通文本。表格必须放在卡片外部。
 
-**Gotcha #G32**: `--footer-qr` 必须传绝对路径 — 相对路径会以 HTML 输出目录再次拼接，可能生成双重相对路径，导致 footer QR 在 preflight 或 relay 上找不到。
+**Gotcha #G35**: `--footer-qr` 必须传绝对路径 — 相对路径会以 HTML 输出目录再次拼接，可能生成双重相对路径，导致 footer QR 在 preflight 或 relay 上找不到。
 
-**Gotcha #G33**: 手动 render 时图片必须能从 HTML 输出目录解析 — 如果 HTML 输出到 `publish/v1/article.html`，正文 `assets/*.png` 需要在 `publish/v1/assets/` 存在；更推荐直接用 orchestrator，让 bundle 处理路径替换。
+**Gotcha #G36**: 手动 render 时图片必须能从 HTML 输出目录解析 — 如果 HTML 输出到 `publish/v1/article.html`，正文 `assets/*.png` 需要在 `publish/v1/assets/` 存在；更推荐直接用 orchestrator，让 bundle 处理路径替换。
 
 ---
 
@@ -71,9 +71,9 @@
 
 **Gotcha #G21**: `orchestrator --auto-push` 会自动处理版本号递增 — 手动推送时才需要查已有最大版本号，`v{N+1}` 递增，永不覆盖已有版本。
 
-**Gotcha #G34**: 正式推送默认走 relay — 本机 IP 未进入微信白名单时会触发 `40164 invalid ip`；除非确认当前出口 IP 已加入白名单，否则不要本机直推。
+**Gotcha #G37**: 正式推送默认走 relay — 本机 IP 未进入微信白名单时会触发 `40164 invalid ip`；除非确认当前出口 IP 已加入白名单，否则不要本机直推。
 
-**Gotcha #G35**: relay 推送必须显式传 `--digest` — 不传时低层脚本会退回正文前 54 字，可能覆盖精心写好的摘要。Orchestrator 会从 `--digest` 或 frontmatter `summary` 读取并传到 relay。
+**Gotcha #G38**: relay 推送必须显式传 `--digest` — 不传时低层脚本会退回正文前 54 字，可能覆盖精心写好的摘要。Orchestrator 会从 `--digest` 或 frontmatter `summary` 读取并传到 relay。
 
 ---
 
@@ -114,6 +114,12 @@
 ## Step 3.1：frontmatter author 清洗
 
 **Gotcha #G30**: frontmatter `author:` 会泄漏到微信推送 — create_wechat_draft.mjs 读取 author 字段写入微信草稿。写个人名字会暴露身份，写公众号名称不符合微信规范。**强制规则**：`author:` 必须为空、`公众号名称`、或与账号 ID 一致——不允许写个人名字。
+
+**Gotcha #G31**: stdout 不是发布证据 — 成功 push 必须在文章 `publish/vN/` 同时留下 `audit.log` 与 `push-result.json`；relay 推送必须把两份文件带回本地再报完整成功。
+
+**Gotcha #G32**: 草稿消失不等于已发布 — `freepublish` 对无权限账号可返回 `48001`，因此对账只能标 `published-or-deleted`，等待人工或权威证据确认。
+
+**Gotcha #G33**: 对账不得从未入白名单的本机直连微信 API — 使用 `reconcile_wechat_drafts.mjs` 经 `WECHAT_RELAY_*` 执行，`--write` 只修复唯一标题匹配的 stale id，封面空值单列。
 
 ## 新增 Gotcha 记录模板
 

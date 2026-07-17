@@ -2,6 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import {
+  deriveCatalogSlug,
+  discoverCatalogPath,
+  finalizePushResultBacklink,
+  inspectCatalogTarget,
+  updateCatalogAfterPush,
+} from "./lib/publish-evidence.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -44,6 +51,9 @@ Optional:
   --author <text>          Article author (default: WECHAT_DEFAULT_AUTHOR or \"公众号作者\")
   --env <path>             .env file path (default: ./.env)
   --out-dir <dir>          Bundle output directory (default: <article-dir>/publish/vN/bundle)
+  --catalog <path>         Article-repo CATALOG.md (auto-discovered from input ancestors)
+  --catalog-slug <slug>    Exact CATALOG row slug (derived from article directory when possible)
+  --no-catalog             Explicitly skip CATALOG backwrite when the repo has no catalog contract
   --thumb-image <path>     Cover image path (for WeChat draft)
   --qr <path>              QR code image path
   --dry-run                Run full pipeline but skip WeChat API push
@@ -181,6 +191,8 @@ export function resolvePipelinePaths({ inputPath, outDirArg = "" }) {
     logPath: path.join(workDir, ".md2wechat-pipeline.jsonl"),
     renderOut: path.join(archiveDir, `${slug}.html`),
     lintOut: path.join(archiveDir, `${slug}-lint.json`),
+    auditOut: path.join(archiveDir, "audit.log"),
+    pushResultOut: path.join(archiveDir, "push-result.json"),
   };
 }
 
@@ -249,6 +261,10 @@ export function buildManualRelayCommand({
   author,
   openComment,
   digest = "",
+  sourcePath = "",
+  archiveDir = "",
+  catalogPath = "",
+  catalogSlug = "",
   thumbImage = null,
   cropSpec = null,
   envInBundle = false,
@@ -257,6 +273,9 @@ export function buildManualRelayCommand({
   const manualTitle = title || slug;
   const scriptsDir = (envPath ? readEnvVar(envPath, "WECHAT_RELAY_SCRIPTS_DIR") : null) || `${relayRoot}/${account}/shared/scripts`;
   const manualScript = `${scriptsDir}/create_wechat_draft.mjs`;
+  const localArchiveDir = archiveDir || path.dirname(outDir);
+  const auditOut = path.join(localArchiveDir, "audit.log");
+  const pushResultOut = path.join(localArchiveDir, "push-result.json");
   const remoteDraftCmd = [
     `cd ${shellQuote(remoteDir)} && node ${shellQuote(manualScript)}`,
     `--html ${shellQuote(path.basename(renderOut))}`,
@@ -265,6 +284,10 @@ export function buildManualRelayCommand({
     `--author ${shellQuote(author)}`,
     `--account ${shellQuote(account)}`,
     `--open-comment ${shellQuote(openComment)}`,
+    `--source-path ${shellQuote(sourcePath)}`,
+    "--audit-out 'audit.log'",
+    "--push-result-out 'push-result.json'",
+    "--json",
     ...(digest ? [`--digest ${shellQuote(digest)}`] : []),
     ...(thumbImage ? [`--thumb-image ${shellQuote(path.basename(thumbImage))}`] : []),
     ...(cropSpec ? [`--crop-235-1 ${shellQuote(cropSpec)}`] : []),
@@ -275,12 +298,54 @@ export function buildManualRelayCommand({
     `scp ${shellQuote(outDir)}/* ${shellQuote(`${relayHost}:${remoteDir}/`)}`,
     ...(envInBundle ? [`scp ${shellQuote(path.join(outDir, ".env"))} ${shellQuote(`${relayHost}:${remoteDir}/.env`)}`] : []),
     `ssh ${shellQuote(relayHost)} ${shellQuote(remoteDraftCmd)}`,
+    `scp ${shellQuote(`${relayHost}:${remoteDir}/push-result.json`)} ${shellQuote(pushResultOut)}`,
+    `scp ${shellQuote(`${relayHost}:${remoteDir}/audit.log`)} ${shellQuote(auditOut)}`,
+    ...(catalogPath && catalogSlug
+      ? [
+          [
+            `node ${shellQuote(path.join(PIPELINE_HOME, "scripts", "update_wechat_catalog.mjs"))}`,
+            `--catalog ${shellQuote(catalogPath)}`,
+            `--slug ${shellQuote(catalogSlug)}`,
+            `--source ${shellQuote(sourcePath)}`,
+            `--push-result ${shellQuote(pushResultOut)}`,
+            `--audit ${shellQuote(auditOut)}`,
+            `--account ${shellQuote(account)}`,
+            "--json",
+          ].join(" "),
+        ]
+      : []),
   ];
 
   return {
     command: pushCommands.join(" && \\\n"),
     remoteDraftCmd,
     envReminder: Boolean(envInBundle),
+  };
+}
+
+function collectRelayEvidence({ relayHost, remoteDir, auditOut, pushResultOut }) {
+  fs.mkdirSync(path.dirname(auditOut), { recursive: true });
+  const pushResultCopy = spawnSync(
+    "scp",
+    [`${relayHost}:${remoteDir}/push-result.json`, pushResultOut],
+    { encoding: "utf8", stdio: "pipe" },
+  );
+  const auditCopy = spawnSync(
+    "scp",
+    [`${relayHost}:${remoteDir}/audit.log`, auditOut],
+    { encoding: "utf8", stdio: "pipe" },
+  );
+  return {
+    pushResult: {
+      ok: pushResultCopy.status === 0 && fs.existsSync(pushResultOut),
+      status: pushResultCopy.status,
+      stderr: pushResultCopy.stderr || "",
+    },
+    audit: {
+      ok: auditCopy.status === 0 && fs.existsSync(auditOut),
+      status: auditCopy.status,
+      stderr: auditCopy.stderr || "",
+    },
   };
 }
 
@@ -611,13 +676,35 @@ function main() {
 
   // 工作目录和日志
   const paths = resolvePipelinePaths({ inputPath, outDirArg: args["out-dir"] || "" });
-  const { workDir, slug, archiveDir, outDir, logPath, renderOut, lintOut } = paths;
+  const { workDir, slug, archiveDir, outDir, logPath, renderOut, lintOut, auditOut, pushResultOut } = paths;
   fs.mkdirSync(archiveDir, { recursive: true });
   // 清空旧日志，避免累积
   if (fs.existsSync(logPath)) {
     fs.writeFileSync(logPath, "", "utf8");
   }
   const logger = new PipelineLogger(logPath);
+  const catalogPath = args["no-catalog"]
+    ? ""
+    : args.catalog
+      ? path.resolve(args.catalog)
+      : discoverCatalogPath(inputPath);
+  const catalogSlug = catalogPath
+    ? String(args["catalog-slug"] || deriveCatalogSlug(inputPath)).trim()
+    : "";
+  if (catalogPath) {
+    try {
+      const admission = inspectCatalogTarget({ catalogPath, slug: catalogSlug });
+      logger.record("catalog_admission", "success", {
+        catalog_path: admission.catalog.path,
+        slug: catalogSlug,
+        current_media_id: admission.row.mediaId,
+      });
+    } catch (error) {
+      err(error.message);
+      logger.record("catalog_admission", "failed", { reason: error.message });
+      return 1;
+    }
+  }
 
   console.log(`\n${C.bold}${C.cyan}╔══════════════════════════════════════════════════════════════╗${C.reset}`);
   console.log(`${C.bold}${C.cyan}║     md2wechat Autopoietic Orchestrator v3.0                ║${C.reset}`);
@@ -865,7 +952,7 @@ function main() {
       const remoteDigestArg = digest ? ` --digest ${shellQuote(digest)}` : "";
       const remoteCmd = [
         relayHost,
-        `cd ${shellQuote(remoteDir)} && node ${shellQuote(`${scriptsDir}/create_wechat_draft.mjs`)} --html ${shellQuote(path.basename(renderOut))}${remoteThumbArg} --lint-report ${shellQuote(path.basename(lintOut))} --title ${shellQuote(remoteTitle)} --author ${shellQuote(author)} --account ${shellQuote(account)} --open-comment ${shellQuote(openComment)}${remoteDigestArg}${remoteCropArg}`,
+        `cd ${shellQuote(remoteDir)} && node ${shellQuote(`${scriptsDir}/create_wechat_draft.mjs`)} --html ${shellQuote(path.basename(renderOut))}${remoteThumbArg} --lint-report ${shellQuote(path.basename(lintOut))} --title ${shellQuote(remoteTitle)} --author ${shellQuote(author)} --account ${shellQuote(account)} --open-comment ${shellQuote(openComment)} --source-path ${shellQuote(inputPath)} --audit-out ${shellQuote("audit.log")} --push-result-out ${shellQuote("push-result.json")} --json${remoteDigestArg}${remoteCropArg}`,
       ];
       const pushResult = spawnSync("ssh", remoteCmd, { encoding: "utf8", stdio: "pipe", maxBuffer: 1024 * 1024 });
 
@@ -880,30 +967,72 @@ function main() {
         }
       }
 
+      const collected = collectRelayEvidence({ relayHost, remoteDir, auditOut, pushResultOut });
       let pushJson = null;
-      try {
-        // 从 stdout 提取完整 JSON（支持多行格式化）
-        const jsonMatch = pushStdout.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          try { pushJson = JSON.parse(jsonMatch[0]); } catch {}
+      if (collected.pushResult.ok) {
+        try {
+          pushJson = JSON.parse(fs.readFileSync(pushResultOut, "utf8"));
+        } catch {
+          pushJson = null;
         }
-        // 兜底：尝试按行解析（单行 JSON）
-        if (!pushJson) {
-          const jsonLines = pushStdout.split("\n").filter((l) => l.trim().startsWith("{") || l.trim().startsWith("["));
-          for (const jl of jsonLines.reverse()) {
-            try { pushJson = JSON.parse(jl); break; } catch {}
-          }
-        }
-      } catch {}
-
-      if (pushResult.status !== 0 || !pushJson || pushJson.errcode !== 0) {
-        err(`Remote push failed (exit ${pushResult.status}). Check relay logs.`);
-        logger.record("push", "failed", { reason: "remote_push_failed", stdout_preview: pushStdout.slice(0, 500), stderr_preview: pushStderr.slice(0, 500) });
-        return 6;
       }
 
-      ok(`Push succeeded. media_id: ${pushJson.media_id || "(unknown)"}`);
-      logger.record("push", "success", { media_id: pushJson.media_id, thumb_media_id: pushJson.thumb_media_id });
+      if (pushResult.status !== 0 || !pushJson || pushJson.errcode !== 0 || pushJson.verification?.status !== "passed") {
+        err(`Remote draft may have been created, but verified push evidence is incomplete (exit ${pushResult.status}).`);
+        logger.record("push", "failed", {
+          reason: "remote_push_or_verification_failed",
+          completion_status: pushJson?.completion_status || "unknown",
+          push_result_collected: collected.pushResult.ok,
+          audit_collected: collected.audit.ok,
+          stdout_preview: pushStdout.slice(0, 500),
+          stderr_preview: pushStderr.slice(0, 500),
+        });
+        return 6;
+      }
+      if (!collected.audit.ok) {
+        err("WeChat accepted the draft, but audit.log was not returned from relay.");
+        logger.record("push", "failed", {
+          reason: "relay_audit_collection_failed",
+          media_id: pushJson.media_id,
+          stderr_preview: collected.audit.stderr.slice(0, 500),
+        });
+        return 7;
+      }
+
+      let catalogUpdate = null;
+      try {
+        if (catalogPath) {
+          catalogUpdate = updateCatalogAfterPush({
+            catalogPath,
+            slug: catalogSlug,
+            mediaId: pushJson.media_id,
+            account,
+            sourcePath: inputPath,
+            auditPath: auditOut,
+          });
+        }
+        pushJson = finalizePushResultBacklink({ pushResultPath: pushResultOut, auditPath: auditOut, catalogUpdate });
+      } catch (error) {
+        err(`Draft created, but CATALOG/Backlink persistence failed: ${error.message}`);
+        logger.record("push", "failed", {
+          reason: "draft_created_backlink_incomplete",
+          media_id: pushJson.media_id,
+          error: error.message,
+          push_result_path: pushResultOut,
+          audit_path: auditOut,
+        });
+        return 7;
+      }
+
+      ok(`Push and evidence persistence succeeded. media_id: ${pushJson.media_id || "(unknown)"}`);
+      logger.record("push", "success", {
+        media_id: pushJson.media_id,
+        thumb_media_id: pushJson.thumb_media_id,
+        audit_path: auditOut,
+        push_result_path: pushResultOut,
+        catalog_path: catalogUpdate?.catalog_path || "",
+        catalog_slug: catalogUpdate?.slug || "",
+      });
 
     } else {
       step(3, "Push to WeChat Draft (MANUAL)");
@@ -923,6 +1052,10 @@ function main() {
         author,
         openComment,
         digest,
+        sourcePath: inputPath,
+        archiveDir,
+        catalogPath,
+        catalogSlug,
         thumbImage,
         cropSpec,
         envInBundle,

@@ -28,7 +28,7 @@ metadata:
 
 `Skill: "khazix-writer"`。
 ⚠️ 删尾部模板「投稿或爆料…」整行，替换身份。正文 > 800 字至少 1 张图。
-详细规则：`references/gotchas.md` #G01–#G05 + `references/writing-rules.md`。
+详细规则：`references/gotchas.md` #G01–#G05、#G34 + `references/writing-rules.md`。
 
 ---
 
@@ -56,7 +56,7 @@ node ${PIPELINE_HOME}/scripts/render_wechat_editorial.mjs \
   --lint-report-out <lint.json>
 ```
 ⚠️ `--env` 和 `--lint-report-out` 必须指定。`--footer-qr` 一律使用绝对路径。禁止绕路用 inline import 替换 CLI。
-Gotchas：`references/gotchas.md` #G06–#G10。
+Gotchas：`references/gotchas.md` #G06–#G10、#G35–#G36。
 
 ---
 
@@ -85,20 +85,31 @@ Gotchas：`references/gotchas.md` #G15–#G17。
 ```bash
 ssh relay "cd <dir> && node create_wechat_draft.mjs \
   --html article.html --thumb-image cover.png \
-  --lint-report lint.json --title '标题' --digest '摘要' --account <ACCOUNT>"
+  --lint-report lint.json --title '标题' --digest '摘要' --account <ACCOUNT> \
+  --audit-out audit.log --push-result-out push-result.json"
 ```
-⚠️ 正式推送默认走 relay；本机直推只有在确认当前 IP 已进微信白名单时才可用。裁剪参数必须从 preflight 输出复制。标题 ≤ 21 中文字，digest ≤ 120 字。
-Gotchas：`references/gotchas.md` #G18–#G21。
+⚠️ 正式推送默认走 relay，并优先用 Orchestrator：它会显式传递 digest，把
+relay 的 `audit.log` 和 `push-result.json` 带回文章 `publish/vN/`，并在可
+唯一定位时回写 CATALOG。本机直推只有在确认当前 IP 已进微信白名单时才可用。
+证据或 Backlink 不完整时即使微信已收稿也必须报非零。裁剪参数必须从
+preflight 输出复制。标题 ≤ 21 中文字，digest ≤ 120 字。
+Gotchas：`references/gotchas.md` #G18–#G21、#G31–#G33、#G37–#G38。
 
 ---
 
 ## Step 4：回检
 
-推送成功后 Audit Log 自动输出。逐行核对 `references/audit-log.md` 中的检查项。
+推送成功后 Audit Log 自动落盘并可输出。逐行核对
+`references/audit-log.md` 中的检查项；结构化结果见同目录
+`push-result.json`。
 ```bash
 node ${PIPELINE_HOME}/scripts/preflight-check.mjs --file <audit.log> --require-render-qa
+
+node ${PIPELINE_HOME}/scripts/reconcile_wechat_drafts.mjs \
+  --catalog <CATALOG.md> --account <ACCOUNT> --env ${PIPELINE_HOME}/.env
 ```
-Gotchas：`references/gotchas.md` #G22–#G24。
+对账默认只读且经 relay；草稿消失只标 `published-or-deleted`，封面空值单列。
+Gotchas：`references/gotchas.md` #G22–#G24、#G31–#G33。
 
 ---
 

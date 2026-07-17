@@ -10,6 +10,9 @@
 ### Added
 
 - **Digest/relay 契约**：`orchestrator` 新增 `--digest`，默认读取 frontmatter `summary`，并在自动/手动 relay 推送命令中显式传给 `create_wechat_draft.mjs`
+- **发布证据持久化**：草稿 create/update + `draft/get` 后自动写入 `audit.log` 与 `push-result.json`；relay 路径把证据带回文章 `publish/vN/`
+- **CATALOG Backlink**：Orchestrator 可发现或显式接收 CATALOG/slug，成功后回写当前 id、`pushed-draft`、audit 指针，并保留被替换的旧 id
+- **Relay 对账**：新增 `reconcile_wechat_drafts.mjs`，区分 matched、stale、`published-or-deleted`、uncataloged 和 cover-missing；`--write` 只修复唯一 replacement candidate
 
 ### Fixed
 
