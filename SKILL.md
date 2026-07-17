@@ -28,7 +28,7 @@ metadata:
 
 `Skill: "khazix-writer"`。
 ⚠️ 删尾部模板「投稿或爆料…」整行，替换身份。正文 > 800 字至少 1 张图。
-详细规则：`references/gotchas.md` #G01–#G05 + `references/writing-rules.md`。
+详细规则：`references/gotchas.md` #G01–#G05、#G34 + `references/writing-rules.md`。
 
 ---
 
@@ -37,9 +37,12 @@ metadata:
 ```bash
 node ${PIPELINE_HOME}/scripts/orchestrator.mjs \
   --input article.md --account YOUR_ACCOUNT \
-  --title "标题" --author "公众号作者" \
+  --title "标题" --digest "摘要" --author "公众号作者" \
+  --qr /abs/path/to/footer-qr.png \
   --auto-fix --auto-push
 ```
+
+⚠️ 发布优先用 Orchestrator，不要手动拆 render/bundle/push。`--digest` 不传时会读取 frontmatter `summary` 并传到 relay；`--qr` 必须传绝对路径，避免 footer QR 在 render/preflight 间被拼成错误相对路径。
 
 ---
 
@@ -49,10 +52,11 @@ node ${PIPELINE_HOME}/scripts/orchestrator.mjs \
 node ${PIPELINE_HOME}/scripts/render_wechat_editorial.mjs \
   --input <md> --output <html> \
   --env ${PIPELINE_HOME}/.env \
+  --footer-qr /abs/path/to/footer-qr.png \
   --lint-report-out <lint.json>
 ```
-⚠️ `--env` 和 `--lint-report-out` 必须指定。禁止绕路用 inline import 替换 CLI。
-Gotchas：`references/gotchas.md` #G06–#G10。
+⚠️ `--env` 和 `--lint-report-out` 必须指定。`--footer-qr` 一律使用绝对路径。禁止绕路用 inline import 替换 CLI。
+Gotchas：`references/gotchas.md` #G06–#G10、#G35–#G36。
 
 ---
 
@@ -81,14 +85,15 @@ Gotchas：`references/gotchas.md` #G15–#G17。
 ```bash
 ssh relay "cd <dir> && node create_wechat_draft.mjs \
   --html article.html --thumb-image cover.png \
-  --lint-report lint.json --title '标题' --account <ACCOUNT> \
+  --lint-report lint.json --title '标题' --digest '摘要' --account <ACCOUNT> \
   --audit-out audit.log --push-result-out push-result.json"
 ```
-⚠️ 正式推送优先用 Orchestrator：它会把 relay 的 `audit.log` 和
-`push-result.json` 带回文章 `publish/vN/`，并在可唯一定位时回写 CATALOG。
+⚠️ 正式推送默认走 relay，并优先用 Orchestrator：它会显式传递 digest，把
+relay 的 `audit.log` 和 `push-result.json` 带回文章 `publish/vN/`，并在可
+唯一定位时回写 CATALOG。本机直推只有在确认当前 IP 已进微信白名单时才可用。
 证据或 Backlink 不完整时即使微信已收稿也必须报非零。裁剪参数必须从
 preflight 输出复制。标题 ≤ 21 中文字，digest ≤ 120 字。
-Gotchas：`references/gotchas.md` #G18–#G21、#G31–#G33。
+Gotchas：`references/gotchas.md` #G18–#G21、#G31–#G33、#G37–#G38。
 
 ---
 

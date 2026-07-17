@@ -9,6 +9,7 @@
 
 ### Added
 
+- **Digest/relay 契约**：`orchestrator` 新增 `--digest`，默认读取 frontmatter `summary`，并在自动/手动 relay 推送命令中显式传给 `create_wechat_draft.mjs`
 - **发布证据持久化**：草稿 create/update + `draft/get` 后自动写入 `audit.log` 与 `push-result.json`；relay 路径把证据带回文章 `publish/vN/`
 - **CATALOG Backlink**：Orchestrator 可发现或显式接收 CATALOG/slug，成功后回写当前 id、`pushed-draft`、audit 指针，并保留被替换的旧 id
 - **Relay 对账**：新增 `reconcile_wechat_drafts.mjs`，区分 matched、stale、`published-or-deleted`、uncataloged 和 cover-missing；`--write` 只修复唯一 replacement candidate
@@ -18,6 +19,7 @@
 - **Pipeline 自洽修补**：显式串联 render/preflight/orchestrator 的封面图和 `--skip-image-check` 参数，避免 `pre_image_missing` 隐式破坏默认入口
 - **AutoHeal 阻断逻辑**：preflight JSON 改为完整解析，存在不可自动修复的 L1/Agent 失败时不再继续进入 bundle
 - **Bundle/relay 契约**：封面图纳入 bundle，relay 目录日期由本地生成，远程推送命令正确传递标题、作者、封面和 `--crop-235-1`
+- **发布摩擦沉淀**：补充 footer QR 绝对路径、参考资料 bullet 空行、手动 render 图片路径和正式推送默认 relay 的 gotchas
 - **Preflight 误报收敛**：Markdown 卡片/表格计数跳过代码块和 inline code，source verification 只扫描可见文本数字
 - **CI 覆盖**：`npm run check` 与 GitHub Lint workflow 覆盖 `harness/**/*.mjs`
 

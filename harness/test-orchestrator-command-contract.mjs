@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { buildManualRelayCommand, resolvePipelinePaths } from "../scripts/orchestrator.mjs";
+import {
+  buildManualRelayCommand,
+  extractSummaryFromMarkdown,
+  resolvePipelinePaths,
+} from "../scripts/orchestrator.mjs";
 
 const result = buildManualRelayCommand({
   relayHost: "relay-host",
@@ -17,6 +21,7 @@ const result = buildManualRelayCommand({
   slug: "slug",
   author: "公众号作者",
   openComment: "1",
+  digest: "短摘要：必须原样传到 relay。",
   sourcePath: "/tmp/article source.md",
   archiveDir: "/tmp/article-publish/v1",
   catalogPath: "/tmp/article repo/CATALOG.md",
@@ -33,6 +38,7 @@ assert.match(result.command, /scp '\/tmp\/wechat bundle\/\.env'/);
 assert.match(result.remoteDraftCmd, /--thumb-image 'cover\.png'/);
 assert.match(result.remoteDraftCmd, /--crop-235-1 '0_0\.0035_1_0\.9965'/);
 assert.match(result.remoteDraftCmd, /--title 'Title With Spaces'/);
+assert.match(result.remoteDraftCmd, /--digest '短摘要：必须原样传到 relay。'/);
 assert.match(result.remoteDraftCmd, /--audit-out 'audit\.log'/);
 assert.match(result.remoteDraftCmd, /--push-result-out 'push-result\.json'/);
 assert.match(result.remoteDraftCmd, /--source-path '\/tmp\/article source\.md'/);
@@ -40,6 +46,15 @@ assert.match(result.command, /push-result\.json/);
 assert.match(result.command, /audit\.log/);
 assert.match(result.command, /update_wechat_catalog\.mjs/);
 assert.doesNotMatch(result.command, /\\scp|\\ssh|\\  node/);
+
+assert.equal(
+  extractSummaryFromMarkdown("---\ntitle: Test\nsummary: \"frontmatter 摘要\"\n---\n# H1\n"),
+  "frontmatter 摘要",
+);
+assert.equal(
+  extractSummaryFromMarkdown("summary: legacy 摘要\n\n# H1\n"),
+  "legacy 摘要",
+);
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "md2wechat-orchestrator-"));
 try {
