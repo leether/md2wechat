@@ -63,11 +63,14 @@ md2wechat/
 - [ ] 人格覆盖：替换「数字生命卡兹克」为用户的公众号身份
 - [ ] 破折号 `——` 和中文双引号 `""` 必须在 Step 0 替换，不能等 lint 拦
 - [ ] 插图检查：正文 > 800 字至少 1 张图，> 1500 字至少 2 张
+- [ ] 参考资料连续 bullet 每条之间留空行，避免被段落长度检查合并误伤
 
 ### Step 1（渲染）
 - [ ] 禁止绕路：不能用 inline import 替换 CLI 渲染
 - [ ] `--env` 必须显式指定，否则 footer 不注入
 - [ ] `--lint-report-out` 必须指定，否则 Audit Log 缺【渲染质检】区块
+- [ ] `--footer-qr` 必须传绝对路径
+- [ ] 手动 render 时，正文图片必须能从 HTML 输出目录解析；发布优先走 orchestrator
 
 ### Step 2（图片）
 - [ ] 封面图必须 ≤ 2MB，超了用 `sips -Z` 压缩，覆盖原文件名
@@ -82,6 +85,8 @@ md2wechat/
 - [ ] 裁剪参数必须从 preflight 输出中复制，不能猜测
 - [ ] 标题 ≤ 21 个中文字（微信 64 字节限制）
 - [ ] digest（summary）≤ 120 字（微信 digest 限制）
+- [ ] 正式推送默认走 relay，除非确认本机出口 IP 已在微信白名单
+- [ ] relay 远端命令必须显式传 `--digest`；orchestrator 应从 `--digest` 或 frontmatter `summary` 取值
 
 ### Step 4（回检）
 - [ ] `errcode: 0` ≠ 完成，必须逐行核对 Audit Log

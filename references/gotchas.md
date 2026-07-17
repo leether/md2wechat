@@ -17,6 +17,8 @@
 
 **Gotcha #G05**: `summary:` 是 GEO 第一依据 — 必须写成「AI 可直接引用的答案片段」（含核心结论 + 具体论据），不能只概括大意；≤ 120 字。
 
+**Gotcha #G31**: 连续参考资料 bullet 会被段落长度检查合并 — 「参考资料」这类连续 `- link` 列表，每条之间留一个空行；否则可能被 L1 超长段落误伤。
+
 ---
 
 ## Step 1：渲染 HTML
@@ -30,6 +32,10 @@
 **Gotcha #G09**: HTML 是 MD 的派生产物 — 修复 lint 错误时必须改 MD 源码，不能只改 HTML。
 
 **Gotcha #G10**: 卡片内部不支持表格 — `:::wechat-card` 里的 `|...|` 表格语法不会被解析，会被当成普通文本。表格必须放在卡片外部。
+
+**Gotcha #G32**: `--footer-qr` 必须传绝对路径 — 相对路径会以 HTML 输出目录再次拼接，可能生成双重相对路径，导致 footer QR 在 preflight 或 relay 上找不到。
+
+**Gotcha #G33**: 手动 render 时图片必须能从 HTML 输出目录解析 — 如果 HTML 输出到 `publish/v1/article.html`，正文 `assets/*.png` 需要在 `publish/v1/assets/` 存在；更推荐直接用 orchestrator，让 bundle 处理路径替换。
 
 ---
 
@@ -65,6 +71,10 @@
 
 **Gotcha #G21**: `orchestrator --auto-push` 会自动处理版本号递增 — 手动推送时才需要查已有最大版本号，`v{N+1}` 递增，永不覆盖已有版本。
 
+**Gotcha #G34**: 正式推送默认走 relay — 本机 IP 未进入微信白名单时会触发 `40164 invalid ip`；除非确认当前出口 IP 已加入白名单，否则不要本机直推。
+
+**Gotcha #G35**: relay 推送必须显式传 `--digest` — 不传时低层脚本会退回正文前 54 字，可能覆盖精心写好的摘要。Orchestrator 会从 `--digest` 或 frontmatter `summary` 读取并传到 relay。
+
 ---
 
 ## Step 4：回检验证
@@ -91,7 +101,7 @@
 
 > `python3 -c "t='标题';print(len(t.encode('utf-8')))"` 预先算好再写 `--title`。
 
-**Gotcha #G28**: digest > 128 字节触发微信 API 45004 错误 — frontmatter `summary:` 会被脚本作为 digest 传给微信。≤ 128 字节（约 42 个中文字）。**最安全的做法**：始终显式传 `--digest`，不要依赖 frontmatter summary。
+**Gotcha #G28**: digest > 128 字节触发微信 API 45004 错误 — frontmatter `summary:` 会被脚本作为 digest 传给微信。≤ 128 字节（约 42 个中文字）。**最安全的做法**：让 Orchestrator 从 `--digest` 或 frontmatter `summary` 读取后显式传给 relay，不要依赖低层脚本自动取正文前 54 字。
 
 > 实在想自动截断可在 Step 0 末尾用 `node -e "const s='...';console.log(s.slice(0,40))"` 预检。
 

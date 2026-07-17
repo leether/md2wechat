@@ -40,6 +40,7 @@ Required:
 
 Optional:
   --title <text>           Article title (overrides H1 in MD)
+  --digest <text>          Article digest; defaults to frontmatter summary
   --author <text>          Article author (default: WECHAT_DEFAULT_AUTHOR or \"公众号作者\")
   --env <path>             .env file path (default: ./.env)
   --out-dir <dir>          Bundle output directory (default: <article-dir>/publish/vN/bundle)
@@ -111,6 +112,39 @@ function normalizeWechatAccountName(account) {
 
 export function shellQuote(value = "") {
   return `'${String(value).replace(/'/g, "'\\''")}'`;
+}
+
+function cleanYamlScalar(value = "") {
+  const trimmed = String(value || "").trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+export function extractSummaryFromMarkdown(markdown = "") {
+  const text = String(markdown || "");
+  if (text.startsWith("---\n") || text.startsWith("---\r\n")) {
+    const lines = text.split(/\r?\n/);
+    for (let i = 1; i < lines.length; i++) {
+      if (lines[i].trim() === "---") break;
+      const match = lines[i].match(/^summary\s*:\s*(.+)$/i);
+      if (match) return cleanYamlScalar(match[1]);
+    }
+  }
+  const legacy = text.match(/^summary\s*:\s*(.+)$/im);
+  return legacy ? cleanYamlScalar(legacy[1]) : "";
+}
+
+export function extractSummaryFromFile(mdPath) {
+  try {
+    return extractSummaryFromMarkdown(fs.readFileSync(mdPath, "utf8"));
+  } catch {
+    return "";
+  }
 }
 
 function formatLocalDateStamp(date = new Date()) {
@@ -214,6 +248,7 @@ export function buildManualRelayCommand({
   slug,
   author,
   openComment,
+  digest = "",
   thumbImage = null,
   cropSpec = null,
   envInBundle = false,
@@ -230,6 +265,7 @@ export function buildManualRelayCommand({
     `--author ${shellQuote(author)}`,
     `--account ${shellQuote(account)}`,
     `--open-comment ${shellQuote(openComment)}`,
+    ...(digest ? [`--digest ${shellQuote(digest)}`] : []),
     ...(thumbImage ? [`--thumb-image ${shellQuote(path.basename(thumbImage))}`] : []),
     ...(cropSpec ? [`--crop-235-1 ${shellQuote(cropSpec)}`] : []),
   ].join(" ");
@@ -551,6 +587,7 @@ function main() {
   const title = args.title;
   const envPath = path.resolve(args.env || path.join(process.cwd(), ".env"));
   const author = args.author || readEnvVar(envPath, "WECHAT_DEFAULT_AUTHOR") || "公众号作者";
+  const digest = args.digest ? String(args.digest).trim() : extractSummaryFromFile(inputPath);
   const dryRun = args["dry-run"] || false;
   const autoFix = args["auto-fix"] || false;
   const thumbImage = args["thumb-image"] ? path.resolve(args["thumb-image"]) : null;
@@ -588,6 +625,7 @@ function main() {
   console.log(`${C.dim}Input:  ${inputPath}${C.reset}`);
   console.log(`${C.dim}Account: ${account}${C.reset}`);
   console.log(`${C.dim}Author:  ${author}${C.reset}`);
+  console.log(`${C.dim}Digest:  ${digest ? `${digest.length} chars` : "(fallback to正文前54字)"}${C.reset}`);
   console.log(`${C.dim}Dry-run: ${dryRun}${C.reset}`);
   console.log(`${C.dim}Auto-fix: ${autoFix}${C.reset}`);
   console.log(`${C.dim}Archive: ${archiveDir}${C.reset}`);
@@ -824,9 +862,10 @@ function main() {
       const remoteTitle = title || slug;
       const remoteThumbArg = thumbImage ? ` --thumb-image ${shellQuote(path.basename(thumbImage))}` : "";
       const remoteCropArg = cropSpec ? ` --crop-235-1 ${shellQuote(cropSpec)}` : "";
+      const remoteDigestArg = digest ? ` --digest ${shellQuote(digest)}` : "";
       const remoteCmd = [
         relayHost,
-        `cd ${shellQuote(remoteDir)} && node ${shellQuote(`${scriptsDir}/create_wechat_draft.mjs`)} --html ${shellQuote(path.basename(renderOut))}${remoteThumbArg} --lint-report ${shellQuote(path.basename(lintOut))} --title ${shellQuote(remoteTitle)} --author ${shellQuote(author)} --account ${shellQuote(account)} --open-comment ${shellQuote(openComment)}${remoteCropArg}`,
+        `cd ${shellQuote(remoteDir)} && node ${shellQuote(`${scriptsDir}/create_wechat_draft.mjs`)} --html ${shellQuote(path.basename(renderOut))}${remoteThumbArg} --lint-report ${shellQuote(path.basename(lintOut))} --title ${shellQuote(remoteTitle)} --author ${shellQuote(author)} --account ${shellQuote(account)} --open-comment ${shellQuote(openComment)}${remoteDigestArg}${remoteCropArg}`,
       ];
       const pushResult = spawnSync("ssh", remoteCmd, { encoding: "utf8", stdio: "pipe", maxBuffer: 1024 * 1024 });
 
@@ -883,6 +922,7 @@ function main() {
         slug,
         author,
         openComment,
+        digest,
         thumbImage,
         cropSpec,
         envInBundle,
