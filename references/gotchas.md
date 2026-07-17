@@ -75,6 +75,8 @@
 
 **Gotcha #G38**: relay 推送必须显式传 `--digest` — 不传时低层脚本会退回正文前 54 字，可能覆盖精心写好的摘要。Orchestrator 会从 `--digest` 或 frontmatter `summary` 读取并传到 relay。
 
+**Gotcha #G39**: article bundle 上传不等于 relay 共享脚本部署 — `--auto-push` 只调用已安装的 writer。正式推送前必须让 `sync_relay_scripts.mjs --check` 通过；漂移时停止并单独申请 `--apply`，不要让普通文章推送隐式修改 relay runtime。
+
 ---
 
 ## Step 4：回检验证

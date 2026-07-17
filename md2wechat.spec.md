@@ -82,6 +82,8 @@ md2wechat/
 - [ ] bundle 目录是 single source of truth，推送时只传这个目录里的文件
 
 ### Step 3（推送）
+- [ ] 正式 relay 推送前必须运行共享脚本 manifest `--check`；漂移时阻断，不能边推文章边 auto-apply
+- [ ] relay 部署必须显式 `--apply`，并具备 staging、逐文件备份、hash/语法/参数复检和失败回滚
 - [ ] 裁剪参数必须从 preflight 输出中复制，不能猜测
 - [ ] 标题 ≤ 21 个中文字（微信 64 字节限制）
 - [ ] digest（summary）≤ 120 字（微信 digest 限制）

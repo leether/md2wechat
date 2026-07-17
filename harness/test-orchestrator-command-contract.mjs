@@ -5,8 +5,10 @@ import os from "node:os";
 import path from "node:path";
 import {
   buildManualRelayCommand,
+  buildRelayDeploymentCheckCommand,
   extractSummaryFromMarkdown,
   resolvePipelinePaths,
+  runRelayDeploymentCheck,
 } from "../scripts/orchestrator.mjs";
 
 const result = buildManualRelayCommand({
@@ -29,9 +31,15 @@ const result = buildManualRelayCommand({
   thumbImage: "/tmp/cover.png",
   cropSpec: "0_0.0035_1_0.9965",
   envInBundle: true,
+  envPath: "/tmp/md2wechat config/.env",
 });
 
 assert.equal(result.envReminder, true);
+assert.equal(
+  result.relayDeploymentCheck,
+  buildRelayDeploymentCheckCommand({ envPath: "/tmp/md2wechat config/.env" }),
+);
+assert.match(result.command, /^node .*sync_relay_scripts\.mjs.*--check.*--env.*--json && \\\nssh/);
 assert.match(result.command, /ssh 'relay-host'/);
 assert.match(result.command, /scp '\/tmp\/wechat bundle'\/\*/);
 assert.match(result.command, /scp '\/tmp\/wechat bundle\/\.env'/);
@@ -46,6 +54,21 @@ assert.match(result.command, /push-result\.json/);
 assert.match(result.command, /audit\.log/);
 assert.match(result.command, /update_wechat_catalog\.mjs/);
 assert.doesNotMatch(result.command, /\\scp|\\ssh|\\  node/);
+
+let admissionCall = null;
+const blockedAdmission = runRelayDeploymentCheck({
+  envPath: "/tmp/md2wechat config/.env",
+  spawn(command, args, options) {
+    admissionCall = { command, args, options };
+    return { status: 2, stdout: '{"ok":false,"completion_status":"relay-scripts-drift"}' };
+  },
+});
+assert.equal(blockedAdmission.ok, false);
+assert.equal(blockedAdmission.exitCode, 2);
+assert.match(blockedAdmission.resultPreview, /relay-scripts-drift/);
+assert.ok(admissionCall.args.includes("--check"));
+assert.ok(admissionCall.args.includes("--json"));
+assert.ok(admissionCall.args.includes("/tmp/md2wechat config/.env"));
 
 assert.equal(
   extractSummaryFromMarkdown("---\ntitle: Test\nsummary: \"frontmatter 摘要\"\n---\n# H1\n"),
