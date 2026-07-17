@@ -277,13 +277,17 @@ function getStableAccessToken({ appId, appSecret }) {
 
 // ── Audit Log: 推送后自动回检 ──
 
-function fetchDraftContent(accessToken, mediaId) {
+function fetchDraftRecord(accessToken, mediaId) {
   const url = `https://api.weixin.qq.com/cgi-bin/draft/get?access_token=${encodeURIComponent(accessToken)}`;
   const result = postJson(url, { media_id: mediaId });
   if (result.errcode && result.errcode !== 0) {
     throw new Error(`draft/get failed: ${JSON.stringify(result)}`);
   }
-  return result.news_item?.[0]?.content || "";
+  const record = result.news_item?.[0];
+  if (!record) {
+    throw new Error(`draft/get returned no news_item for media_id ${mediaId}`);
+  }
+  return record;
 }
 
 function analyzeDraftContent(content) {
@@ -386,7 +390,7 @@ function formatLintSection(report) {
   return lines;
 }
 
-function formatAuditLog(audit) {
+export function formatAuditLog(audit) {
   const lines = [
     "",
     "━━━ md2wechat Audit Log ━━━",
@@ -433,6 +437,45 @@ function formatAuditLog(audit) {
   lines.push("");
   lines.push("━━━━━━━━━━━━━━━━━━━━━━━━━");
   return lines.join("\n");
+}
+
+function sanitizeEvidenceError(error) {
+  return String(error?.message || error || "unknown error")
+    .replace(/access_token=[^&\s]+/gi, "access_token=<redacted>")
+    .slice(0, 500);
+}
+
+function writeAtomicText(targetPath, content) {
+  const absolute = path.resolve(targetPath);
+  fs.mkdirSync(path.dirname(absolute), { recursive: true });
+  const tempPath = `${absolute}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tempPath, content, "utf8");
+  fs.renameSync(tempPath, absolute);
+  return absolute;
+}
+
+function writeAtomicJson(targetPath, value) {
+  return writeAtomicText(targetPath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+export function persistVerifiedDraftEvidence({
+  audit,
+  pushResult,
+  auditOutPath,
+  pushResultOutPath,
+}) {
+  if (pushResult?.verification?.status !== "passed" || pushResult?.completion_status !== "verified") {
+    throw new Error("refusing to persist verified evidence for an unverified push result");
+  }
+  const auditText = `${formatAuditLog(audit).trimStart()}\n`;
+  writeAtomicText(auditOutPath, auditText);
+  writeAtomicJson(pushResultOutPath, pushResult);
+  return {
+    auditPath: path.resolve(auditOutPath),
+    pushResultPath: path.resolve(pushResultOutPath),
+    auditText,
+    pushResult,
+  };
 }
 
 function guessMimeType(filePath) {
@@ -1335,15 +1378,36 @@ export function resolveDraftPlan(argv = process.argv.slice(2)) {
         keepInlineStyles: Boolean(args["keep-inline-styles"]),
       });
 
+  const evidenceDir = args["evidence-dir"]
+    ? path.resolve(process.cwd(), String(args["evidence-dir"]))
+    : absoluteHtmlPath
+      ? path.dirname(absoluteHtmlPath)
+      : process.cwd();
+  const auditOutPath = args["audit-out"]
+    ? path.resolve(process.cwd(), String(args["audit-out"]))
+    : path.join(evidenceDir, "audit.log");
+  const pushResultOutPath = args["push-result-out"]
+    ? path.resolve(process.cwd(), String(args["push-result-out"]))
+    : path.join(evidenceDir, "push-result.json");
+
   return {
     help: false,
     dryRun: Boolean(args["dry-run"]),
+    jsonOutput: Boolean(args.json),
     preflight: Boolean(args.preflight),
     isPictureDraft,
     account: args.account ? String(args.account).trim() : "",
     envPath: args.env ? path.resolve(process.cwd(), args.env) : defaultEnvPath,
     htmlPath: absoluteHtmlPath,
     sourceMdPath: args["source-md"] ? path.resolve(process.cwd(), args["source-md"]) : "",
+    sourcePath: args["source-path"]
+      ? String(args["source-path"]).trim()
+      : args["source-md"]
+        ? path.resolve(process.cwd(), args["source-md"])
+        : absoluteHtmlPath,
+    evidenceDir,
+    auditOutPath,
+    pushResultOutPath,
     thumbImagePath,
     pictureImagePaths: imagePaths.map((imagePath) => path.resolve(process.cwd(), imagePath)),
     lintReportPath: args["lint-report"] ? path.resolve(process.cwd(), String(args["lint-report"])) : "",
@@ -1375,6 +1439,7 @@ export async function createWechatDraft(argv = process.argv.slice(2)) {
       "Optional metadata:",
       "  --title <text>               Article title; overrides --source-md",
       "  --source-md <path>           Read first H1 from Markdown as title",
+      "  --source-path <path>         Original source path recorded in push-result.json",
       "  --author <text>              Article author",
       "  --digest <text>              Article digest; defaults to正文前54字",
       "  --description <text>         Picture draft caption text; falls back to --content or digest",
@@ -1390,6 +1455,10 @@ export async function createWechatDraft(argv = process.argv.slice(2)) {
       "  --env <path>                 Override .env path",
       "  --keep-inline-styles         Keep existing style= attrs instead of compacting HTML",
       "  --lint-report <path>         Structured lint report JSON from render_wechat_editorial.mjs",
+      "  --evidence-dir <path>        Evidence directory (default: HTML directory)",
+      "  --audit-out <path>           Durable audit log path (default: <evidence-dir>/audit.log)",
+      "  --push-result-out <path>     Structured push result path (default: <evidence-dir>/push-result.json)",
+      "  --json                       Emit only structured result JSON on stdout",
       "  --preflight                  Run publish checks and print a structured report",
       "  --dry-run                    Print resolved payload without calling WeChat",
       "  --help                       Show help",
@@ -1415,6 +1484,11 @@ export async function createWechatDraft(argv = process.argv.slice(2)) {
           envPath: plan.envPath,
           htmlPath: plan.htmlPath,
           sourceMdPath: plan.sourceMdPath || undefined,
+          sourcePath: plan.sourcePath || undefined,
+          evidence: {
+            auditPath: plan.auditOutPath,
+            pushResultPath: plan.pushResultOutPath,
+          },
           thumbImagePath: plan.thumbImagePath || undefined,
           preflight: preflightReport,
           payload: plan.payload,
@@ -1471,31 +1545,49 @@ export async function createWechatDraft(argv = process.argv.slice(2)) {
     throw new Error(`WeChat ${action} failed: ${JSON.stringify(result)}`);
   }
 
-  console.log(
-    JSON.stringify(
-      {
-        media_id: result.media_id || "",
-        errcode: result.errcode || 0,
-        errmsg: result.errmsg || "ok",
-        title: plan.payload.articles[0].title,
-        account: credentials.account,
-        thumb_media_id: plan.payload.articles[0].thumb_media_id,
-        htmlPath: plan.htmlPath,
-      },
-      null,
-      2,
-    ),
-  );
+  const effectiveMediaId = result.media_id || plan.updateMediaId || "";
+  const pushedAt = new Date().toISOString();
+  const pushResult = {
+    schema_version: "md2wechat-push-result/v1",
+    media_id: effectiveMediaId,
+    thumb_media_id: plan.payload.articles[0].thumb_media_id || "",
+    errcode: result.errcode || 0,
+    errmsg: result.errmsg || "ok",
+    account: credentials.account,
+    pushed_at: pushedAt,
+    source_path: plan.sourcePath || "",
+    html_path: plan.htmlPath || "",
+    title: plan.payload.articles[0].title,
+    operation: isUpdate ? "draft/update" : "draft/add",
+    completion_status: "draft-created-evidence-pending",
+    verification: {
+      status: "pending",
+      checked_at: "",
+    },
+    evidence: {
+      audit_path: plan.auditOutPath,
+      push_result_path: plan.pushResultOutPath,
+    },
+  };
 
-  // ── 输出 Audit Log（推送后自动回检） ──
   try {
-    const content = fetchDraftContent(accessToken, result.media_id);
-    const verify = analyzeDraftContent(content);
+    writeAtomicJson(plan.pushResultOutPath, pushResult);
+  } catch {
+    // Continue to read back the draft; the final evidence write remains authoritative.
+  }
+
+  // ── 输出并持久化 Audit Log（推送后自动回检） ──
+  try {
+    const draftRecord = fetchDraftRecord(accessToken, effectiveMediaId);
+    const verify = analyzeDraftContent(draftRecord.content || "");
     const assets = getAssetList(plan.htmlPath);
+    const verifiedThumbMediaId = Object.hasOwn(draftRecord, "thumb_media_id")
+      ? draftRecord.thumb_media_id || ""
+      : plan.payload.articles[0].thumb_media_id || "";
     const audit = {
-      timestamp: new Date().toISOString(),
+      timestamp: pushedAt,
       source: {
-        mdPath: plan.sourceMdPath,
+        mdPath: plan.sourcePath,
         htmlPath: plan.htmlPath,
         title: plan.payload.articles[0].title,
         author: plan.payload.articles[0].author,
@@ -1505,14 +1597,43 @@ export async function createWechatDraft(argv = process.argv.slice(2)) {
       lintReport: readLintReport(plan.lintReportPath),
       push: {
         status: result.errmsg || "ok",
-        mediaId: result.media_id,
-        thumbMediaId: plan.payload.articles[0].thumb_media_id,
+        mediaId: effectiveMediaId,
+        thumbMediaId: verifiedThumbMediaId,
       },
       verify,
     };
-    console.log(formatAuditLog(audit));
+    pushResult.thumb_media_id = verifiedThumbMediaId;
+    pushResult.completion_status = "verified";
+    pushResult.verification = {
+      status: "passed",
+      checked_at: new Date().toISOString(),
+      metrics: verify,
+    };
+    const persisted = persistVerifiedDraftEvidence({
+      audit,
+      pushResult,
+      auditOutPath: plan.auditOutPath,
+      pushResultOutPath: plan.pushResultOutPath,
+    });
+
+    console.log(JSON.stringify(pushResult, null, 2));
+    if (!plan.jsonOutput) console.log(persisted.auditText.trimEnd());
   } catch (auditErr) {
-    console.warn("⚠️  Audit log 生成失败:", auditErr.message);
+    pushResult.completion_status = "draft-created-evidence-incomplete";
+    pushResult.verification = {
+      status: "failed",
+      checked_at: new Date().toISOString(),
+      error: sanitizeEvidenceError(auditErr),
+    };
+    try {
+      writeAtomicJson(plan.pushResultOutPath, pushResult);
+    } catch {
+      // The original persistence error is reported below without exposing credentials.
+    }
+    if (plan.jsonOutput) console.log(JSON.stringify(pushResult, null, 2));
+    throw new Error(
+      `WeChat draft ${effectiveMediaId || "<unknown>"} was created, but durable verification evidence is incomplete: ${sanitizeEvidenceError(auditErr)}`,
+    );
   }
 
   return 0;

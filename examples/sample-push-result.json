@@ -1,0 +1,41 @@
+{
+  "schema_version": "md2wechat-push-result/v1",
+  "media_id": "sample-current-media-id",
+  "thumb_media_id": "sample-cover-media-id",
+  "errcode": 0,
+  "errmsg": "ok",
+  "account": "YOUR_ACCOUNT",
+  "pushed_at": "2026-07-17T08:00:00.000Z",
+  "source_path": "/absolute/article/path/article.md",
+  "html_path": "/relay/workdir/article.html",
+  "title": "示例文章",
+  "operation": "draft/add",
+  "completion_status": "verified",
+  "verification": {
+    "status": "passed",
+    "checked_at": "2026-07-17T08:00:02.000Z",
+    "metrics": {
+      "imgCount": 3,
+      "cdnCount": 3,
+      "h2Count": 5,
+      "cardCount": 1,
+      "darkCardCount": 1,
+      "lightCardCount": 0,
+      "quoteCount": 1,
+      "styleCount": 98,
+      "positionCount": 0,
+      "filterCount": 0
+    }
+  },
+  "evidence": {
+    "audit_path": "/absolute/article/path/publish/v3/audit.log",
+    "push_result_path": "/absolute/article/path/publish/v3/push-result.json"
+  },
+  "backlink": {
+    "status": "updated",
+    "catalog_path": "/absolute/article-repo/CATALOG.md",
+    "catalog_slug": "article-slug",
+    "old_media_id": "sample-superseded-media-id",
+    "audit_pointer": "publish/v3/audit.log"
+  }
+}
