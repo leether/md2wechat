@@ -276,6 +276,7 @@ export function buildManualRelayCommand({
   const localArchiveDir = archiveDir || path.dirname(outDir);
   const auditOut = path.join(localArchiveDir, "audit.log");
   const pushResultOut = path.join(localArchiveDir, "push-result.json");
+  const relayDeploymentCheck = buildRelayDeploymentCheckCommand({ envPath });
   const remoteDraftCmd = [
     `cd ${shellQuote(remoteDir)} && node ${shellQuote(manualScript)}`,
     `--html ${shellQuote(path.basename(renderOut))}`,
@@ -294,6 +295,7 @@ export function buildManualRelayCommand({
   ].join(" ");
 
   const pushCommands = [
+    relayDeploymentCheck,
     `ssh ${shellQuote(relayHost)} ${shellQuote(`mkdir -p ${shellQuote(remoteDir)}`)}`,
     `scp ${shellQuote(outDir)}/* ${shellQuote(`${relayHost}:${remoteDir}/`)}`,
     ...(envInBundle ? [`scp ${shellQuote(path.join(outDir, ".env"))} ${shellQuote(`${relayHost}:${remoteDir}/.env`)}`] : []),
@@ -319,7 +321,30 @@ export function buildManualRelayCommand({
   return {
     command: pushCommands.join(" && \\\n"),
     remoteDraftCmd,
+    relayDeploymentCheck,
     envReminder: Boolean(envInBundle),
+  };
+}
+
+export function buildRelayDeploymentCheckCommand({ envPath = "" } = {}) {
+  return [
+    `node ${shellQuote(path.join(PIPELINE_HOME, "scripts", "sync_relay_scripts.mjs"))}`,
+    "--check",
+    ...(envPath ? [`--env ${shellQuote(envPath)}`] : []),
+    "--json",
+  ].join(" ");
+}
+
+export function runRelayDeploymentCheck({ envPath, spawn = spawnSync }) {
+  const result = spawn(
+    NODE,
+    [path.join(PIPELINE_HOME, "scripts", "sync_relay_scripts.mjs"), "--check", "--env", envPath, "--json"],
+    { encoding: "utf8", stdio: "pipe", cwd: PIPELINE_HOME },
+  );
+  return {
+    ok: result.status === 0,
+    exitCode: result.status,
+    resultPreview: (result.stdout || "").slice(0, 1000),
   };
 }
 
@@ -906,6 +931,21 @@ function main() {
     if (autoPush) {
       step(3, "Push to WeChat Draft (AUTO)");
       info(`Relay host: ${relayHost}`);
+
+      info("Checking relay script deployment contract...");
+      const relayDeploymentCheck = runRelayDeploymentCheck({ envPath });
+      if (!relayDeploymentCheck.ok) {
+        err("Relay shared scripts do not match the local deployment manifest. Run sync_relay_scripts.mjs --check and request an authorized --apply before pushing.");
+        logger.record("relay_deployment_check", "failed", {
+          reason: "relay_script_manifest_drift",
+          exit_code: relayDeploymentCheck.exitCode,
+          result_preview: relayDeploymentCheck.resultPreview,
+        });
+        return 6;
+      }
+      logger.record("relay_deployment_check", "success", {
+        completion_status: "relay-scripts-aligned",
+      });
 
       // 查询已有版本号并递增
       info("Checking existing versions on relay...");

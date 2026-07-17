@@ -252,6 +252,31 @@ node scripts/create_wechat_draft.mjs \
 
 **方式 B：通过跳板机推送**（本地 IP 不在白名单时）
 
+正式推送前先验证 relay 共享脚本与当前仓库一致：
+
+```bash
+npm run relay:check
+# 等价命令：node scripts/sync_relay_scripts.mjs --check --json
+```
+
+这个检查覆盖 `create_wechat_draft.mjs` 及其仓库内本地依赖、逐文件
+SHA-256、Node 语法和 `--digest` / `--source-path` / `--audit-out` /
+`--push-result-out` / `--json` 参数面。Orchestrator 的自动与手动 relay
+路径都会先执行该检查；发现漂移时直接非零退出，不会边推文章边改共享脚本。
+
+只有获得 live mutation 授权后，才执行部署：
+
+```bash
+node scripts/sync_relay_scripts.mjs --apply --json
+```
+
+`--apply` 会先把完整 manifest 上传到 staging 路径，为每个现有文件创建
+`.bak-<UTC时间>` 备份，再执行 staged promotion、hash/语法/参数复检；安装
+失败会从同批备份恢复。需要可复现的备份名时可显式传
+`--backup-tag <tag>`。relay 主机和共享目录只从 `.env` 的
+`WECHAT_RELAY_HOST` / `WECHAT_RELAY_SCRIPTS_DIR` 读取，结构化输出不会打印
+host 值或凭据。
+
 推荐直接用 Orchestrator 的 `--auto-push`：
 
 ```bash
@@ -262,7 +287,9 @@ node scripts/orchestrator.mjs \
   --auto-push
 ```
 
-它会自动完成：创建远程目录 → SCP 上传 bundle（`.env` 单独传输）→ SSH 远程执行 `create_wechat_draft.mjs`。手动分步命令详见 SKILL.md Step 3。
+它会自动完成：只读校验 relay manifest → 创建远程目录 → SCP 上传 bundle
+（`.env` 单独传输）→ SSH 远程执行 `create_wechat_draft.mjs`。它不会自动
+执行 `--apply`。手动分步命令详见 SKILL.md Step 3。
 
 验证通过后，Orchestrator 必须把两份证据带回文章的同一
 `publish/vN/`：
