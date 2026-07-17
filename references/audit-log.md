@@ -45,6 +45,18 @@ HTML: <html路径>
 
 > ⚠️ 缺少【渲染质检】区块 = `--lint-report` 没传或 lint.json 没生成 → 回到 Step 1 补。
 
+同一次推送还必须存在同目录 `push-result.json`。标准字段见
+`examples/sample-push-result.json`。只有以下条件同时满足才是完整成功：
+
+- `errcode = 0`
+- `verification.status = passed`
+- `completion_status = verified`
+- `audit.log` 与 `push-result.json` 已回到本地文章 `publish/vN/`
+- 配置了 CATALOG 时，Backlink 已写入当前 id / status / audit 指针
+
+如果微信已创建草稿但上述任一步失败，状态是
+`draft-created-evidence-incomplete`，不是成功，也不是自动回滚。
+
 ---
 
 ## 回检必须通过的检查项
@@ -91,3 +103,12 @@ HTML: <html路径>
 | `position: N`（N > 0） | HTML 含 `position:` 属性，会被微信过滤 | 回到 Step 1，检查 lint 报告，移除 position |
 | `filter: N`（N > 0） | HTML 含 `filter:` 属性，兼容性不稳定 | 回到 Step 1，移除 filter |
 | 缺少【渲染质检】区块 | `--lint-report` 没传或 lint.json 没生成 | 回到 Step 1，指定 `--lint-report-out`，重新渲染 |
+
+## 草稿箱对账语义
+
+- API 查询经 `WECHAT_RELAY_*` 指向的 relay 执行
+- `CATALOG.md` 是投影，草稿箱快照是 live truth
+- 草稿仍在但 id 被替换：`stale_ids`，可在唯一标题匹配时用 `--write` 修复
+- 草稿不在：`published-or-deleted`，禁止自动断言 published
+- 草稿无 `thumb_media_id`：单列为 cover gap
+- 草稿在箱但无任何 CATALOG id/title：单列为 uncataloged draft

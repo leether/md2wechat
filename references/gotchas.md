@@ -105,6 +105,12 @@
 
 **Gotcha #G30**: frontmatter `author:` 会泄漏到微信推送 — create_wechat_draft.mjs 读取 author 字段写入微信草稿。写个人名字会暴露身份，写公众号名称不符合微信规范。**强制规则**：`author:` 必须为空、`公众号名称`、或与账号 ID 一致——不允许写个人名字。
 
+**Gotcha #G31**: stdout 不是发布证据 — 成功 push 必须在文章 `publish/vN/` 同时留下 `audit.log` 与 `push-result.json`；relay 推送必须把两份文件带回本地再报完整成功。
+
+**Gotcha #G32**: 草稿消失不等于已发布 — `freepublish` 对无权限账号可返回 `48001`，因此对账只能标 `published-or-deleted`，等待人工或权威证据确认。
+
+**Gotcha #G33**: 对账不得从未入白名单的本机直连微信 API — 使用 `reconcile_wechat_drafts.mjs` 经 `WECHAT_RELAY_*` 执行，`--write` 只修复唯一标题匹配的 stale id，封面空值单列。
+
 ## 新增 Gotcha 记录模板
 
 ```markdown

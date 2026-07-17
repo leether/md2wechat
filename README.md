@@ -264,6 +264,19 @@ node scripts/orchestrator.mjs \
 
 它会自动完成：创建远程目录 → SCP 上传 bundle（`.env` 单独传输）→ SSH 远程执行 `create_wechat_draft.mjs`。手动分步命令详见 SKILL.md Step 3。
 
+验证通过后，Orchestrator 必须把两份证据带回文章的同一
+`publish/vN/`：
+
+- `audit.log`：`draft/get` 回检后的可读审计
+- `push-result.json`：`media_id`、`thumb_media_id`、`errcode`、账号、
+  推送时间、源稿路径和 verification 状态
+
+如果输入稿所在仓存在可唯一发现的 `CATALOG.md`，Orchestrator 会按
+文章目录推导 slug 并回写当前 `media_id`、`pushed-draft` 状态和 audit
+指针。可用 `--catalog` / `--catalog-slug` 显式指定；仓库确实没有 CATALOG
+契约时用 `--no-catalog`。微信已收稿但证据返回或 CATALOG 回写失败时，
+命令返回非零并保留可取得的 `push-result.json`，不能把它误报为完整成功。
+
 ### Step 4：回检验证
 
 推送后 `create_wechat_draft.mjs` **自动从微信 API 拉回草稿** 输出 Audit Log。关键检查项：
@@ -278,6 +291,22 @@ node scripts/orchestrator.mjs \
 | `position` / `filter` | 0 ✅ |
 
 > **必须逐行核验**：拿到 Audit Log 后，打开回检表格逐项比对。`errcode: 0` ≠ 完成。
+
+周期对账必须走 relay（本机出口 IP 未必在微信白名单）：
+
+```bash
+node scripts/reconcile_wechat_drafts.mjs \
+  --catalog /absolute/article-repo/CATALOG.md \
+  --account YOUR_ACCOUNT \
+  --env /absolute/md2wechat/.env \
+  --date YYYY-MM-DD \
+  --report /absolute/reconcile-report.json
+```
+
+默认只读。仅在确认唯一标题匹配的替换 id 后，`--write` 才会修复
+CATALOG；真正从草稿箱消失的记录始终标为 `published-or-deleted`，不会因
+`freepublish` 返回 `48001` 或草稿消失而自动断言已发布。封面为空的草稿
+会在 `cover_missing` 中单列。
 
 ### Step 5：完成前核查（skill-compliance-harness）
 

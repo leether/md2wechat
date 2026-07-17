@@ -82,10 +82,16 @@ md2wechat/
 - [ ] 裁剪参数必须从 preflight 输出中复制，不能猜测
 - [ ] 标题 ≤ 21 个中文字（微信 64 字节限制）
 - [ ] digest（summary）≤ 120 字（微信 digest 限制）
+- [ ] `publish/vN/audit.log` 与 `push-result.json` 必须落盘；stdout 不算持久证据
+- [ ] relay 推送必须把两份证据带回本地再报完整成功
+- [ ] CATALOG 可唯一定位时自动回写当前 id/status/audit；旧 id 留在 Notes
 
 ### Step 4（回检）
 - [ ] `errcode: 0` ≠ 完成，必须逐行核对 Audit Log
 - [ ] 缺少【渲染质检】区块 = lint report 没生成，回到 Step 1 补
+- [ ] 对账 API 必须经 relay；默认只读，`--write` 只修复唯一 replacement candidate
+- [ ] 草稿消失标 `published-or-deleted`，不得自动断言 published
+- [ ] `thumb_media_id` 为空在 cover-missing 清单单列
 
 ### Step 5（完成前核查）
 - [ ] skill-compliance-harness 不得跳过
@@ -183,6 +189,8 @@ description: >
 ### 功能验收
 - [ ] 用一篇测试文章完整走完 Step 0–5，所有步骤正常
 - [ ] Audit Log 解析脚本输出与手动核对结果一致
+- [ ] push-result schema、CATALOG 回写与 rebuild 旧 id 备注 fixture 通过
+- [ ] reconcile fixture 覆盖 matched/stale/absent/uncataloged/cover-missing 和 48001 二义性
 - [ ] skill-compliance-harness 能正确加载并核验
 
 ### 回归验收
