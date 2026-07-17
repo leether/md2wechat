@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- **draft/update 47001**：`create_wechat_draft --update` 复用了 draft/add 的 `articles` 数组形状，而 draft/update 要求单篇文章对象，微信返回 47001 data format error（relay 现场 A/B 复现：数组 → 47001，对象 → ok）；新增 `applyDraftUpdateShape` 统一转换，harness 测试钉住形状
 - **Pipeline 自洽修补**：显式串联 render/preflight/orchestrator 的封面图和 `--skip-image-check` 参数，避免 `pre_image_missing` 隐式破坏默认入口
 - **AutoHeal 阻断逻辑**：preflight JSON 改为完整解析，存在不可自动修复的 L1/Agent 失败时不再继续进入 bundle
 - **Bundle/relay 契约**：封面图纳入 bundle，relay 目录日期由本地生成，远程推送命令正确传递标题、作者、封面和 `--crop-235-1`

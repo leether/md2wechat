@@ -9,6 +9,20 @@ import { parseArgs, printHelp, requireArg } from "./lib/memory-lib.mjs";
 const stableTokenEndpoint = "https://api.weixin.qq.com/cgi-bin/stable_token";
 const draftAddEndpoint = "https://api.weixin.qq.com/cgi-bin/draft/add";
 const draftUpdateEndpoint = "https://api.weixin.qq.com/cgi-bin/draft/update";
+
+export function applyDraftUpdateShape(payload, updateMediaId, updateIndex) {
+  // draft/add expects `articles` as an array, but draft/update requires a
+  // single article object. Reusing the add shape for update fails with
+  // WeChat errcode 47001 (data format error). Mutates the given payload;
+  // callers should pass a shallow copy so downstream bookkeeping keeps the
+  // original array shape. Returns the payload for convenience.
+  payload.media_id = String(updateMediaId);
+  payload.index = parseInt(updateIndex, 10) || 0;
+  if (Array.isArray(payload.articles)) {
+    payload.articles = payload.articles[0];
+  }
+  return payload;
+}
 const imageAddEndpoint = "https://api.weixin.qq.com/cgi-bin/material/add_material";
 const defaultEnvPath = path.resolve(process.cwd(), ".env");
 const targetCoverAspectRatio = 2.35;
@@ -1531,14 +1545,14 @@ export async function createWechatDraft(argv = process.argv.slice(2)) {
 
   let endpoint = draftAddEndpoint;
   const isUpdate = Boolean(plan.updateMediaId);
+  let requestPayload = plan.payload;
   if (isUpdate) {
     endpoint = draftUpdateEndpoint;
-    plan.payload.media_id = plan.updateMediaId;
-    plan.payload.index = parseInt(plan.updateIndex, 10) || 0;
+    requestPayload = applyDraftUpdateShape({ ...plan.payload }, plan.updateMediaId, plan.updateIndex);
   }
 
   const url = `${endpoint}?access_token=${encodeURIComponent(accessToken)}`;
-  const result = postJson(url, plan.payload);
+  const result = postJson(url, requestPayload);
 
   if (result.errcode && result.errcode !== 0) {
     const action = isUpdate ? "draft/update" : "draft/add";
