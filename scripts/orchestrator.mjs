@@ -157,6 +157,19 @@ export function extractSummaryFromFile(mdPath) {
   }
 }
 
+export function extractH1FromMarkdown(text) {
+  const match = text.match(/^#\s+(.+)$/m);
+  return match ? match[1].trim() : "";
+}
+
+export function extractH1FromFile(mdPath) {
+  try {
+    return extractH1FromMarkdown(fs.readFileSync(mdPath, "utf8"));
+  } catch {
+    return "";
+  }
+}
+
 function formatLocalDateStamp(date = new Date()) {
   const yyyy = String(date.getFullYear());
   const mm = String(date.getMonth() + 1).padStart(2, "0");
@@ -702,6 +715,8 @@ function main() {
   // 工作目录和日志
   const paths = resolvePipelinePaths({ inputPath, outDirArg: args["out-dir"] || "" });
   const { workDir, slug, archiveDir, outDir, logPath, renderOut, lintOut, auditOut, pushResultOut } = paths;
+  // 推送标题缺省取正文 H1，避免退化为文件名（曾产出标题为「publish」的废草稿，2026-07-18）
+  const pushTitle = title || extractH1FromFile(inputPath) || slug;
   fs.mkdirSync(archiveDir, { recursive: true });
   // 清空旧日志，避免累积
   if (fs.existsSync(logPath)) {
@@ -986,7 +1001,7 @@ function main() {
       }
 
       info("Executing create_wechat_draft.mjs on relay...");
-      const remoteTitle = title || slug;
+      const remoteTitle = pushTitle;
       const remoteThumbArg = thumbImage ? ` --thumb-image ${shellQuote(path.basename(thumbImage))}` : "";
       const remoteCropArg = cropSpec ? ` --crop-235-1 ${shellQuote(cropSpec)}` : "";
       const remoteDigestArg = digest ? ` --digest ${shellQuote(digest)}` : "";
@@ -1087,7 +1102,7 @@ function main() {
         outDir,
         renderOut,
         lintOut,
-        title,
+        title: pushTitle,
         slug,
         author,
         openComment,

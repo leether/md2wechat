@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- **推送标题缺省取 H1**：不显式传 `--title` 时，orchestrator 的推送标题曾退化为输入文件名 slug（`publish.md` → 草稿标题「publish」，2026-07-18 生产现场复现并清理废草稿）；新增 `extractH1FromFile`/`extractH1FromMarkdown`，`pushTitle = --title || H1 || slug`，自动 relay 与 manual relay 两条推送路径统一使用
 - **draft/update 47001**：`create_wechat_draft --update` 复用了 draft/add 的 `articles` 数组形状，而 draft/update 要求单篇文章对象，微信返回 47001 data format error（relay 现场 A/B 复现：数组 → 47001，对象 → ok）；新增 `applyDraftUpdateShape` 统一转换，harness 测试钉住形状
 - **Pipeline 自洽修补**：显式串联 render/preflight/orchestrator 的封面图和 `--skip-image-check` 参数，避免 `pre_image_missing` 隐式破坏默认入口
 - **AutoHeal 阻断逻辑**：preflight JSON 改为完整解析，存在不可自动修复的 L1/Agent 失败时不再继续进入 bundle
