@@ -209,7 +209,45 @@ export function resolvePipelinePaths({ inputPath, outDirArg = "" }) {
   };
 }
 
-function runPublishDoctor({ inputPath, envPath, account, autoPush, dryRun, thumbImage, qrPath }) {
+function extractMarkdownImageSources(markdown = "") {
+  const sources = [];
+  const imagePattern = /!\[[^\]]*\]\((?:<([^>]+)>|([^\s)]+))(?:\s+[^)]*)?\)/g;
+  let match;
+  while ((match = imagePattern.exec(markdown)) !== null) {
+    const source = String(match[1] || match[2] || "").trim();
+    if (source) sources.push(source);
+  }
+  return sources;
+}
+
+function realPathIfPresent(candidatePath) {
+  try {
+    return fs.realpathSync(candidatePath);
+  } catch {
+    return null;
+  }
+}
+
+export function findDuplicateFooterQrReferences({ inputPath, envPath, footerQrPath }) {
+  if (!inputPath || !footerQrPath || !fs.existsSync(inputPath)) return [];
+
+  const footerCandidates = [
+    footerQrPath,
+    path.resolve(path.dirname(envPath), footerQrPath),
+  ]
+    .map(realPathIfPresent)
+    .filter(Boolean);
+  if (footerCandidates.length === 0) return [];
+
+  const sourceDir = path.dirname(inputPath);
+  const markdown = fs.readFileSync(inputPath, "utf8");
+  return extractMarkdownImageSources(markdown)
+    .filter((source) => !/^(?:https?:|data:)/i.test(source))
+    .map((source) => ({ source, realPath: realPathIfPresent(path.resolve(sourceDir, source)) }))
+    .filter(({ realPath }) => realPath && footerCandidates.includes(realPath));
+}
+
+export function runPublishDoctor({ inputPath, envPath, account, autoPush, dryRun, thumbImage, qrPath }) {
   const errors = [];
   const warnings = [];
 
@@ -235,6 +273,18 @@ function runPublishDoctor({ inputPath, envPath, account, autoPush, dryRun, thumb
       }
       if (!/(^|[\\/_.-])qr([\\/_.-]|$)/i.test(path.basename(footerQr))) {
         warnings.push(`footer QR filename does not include "qr"; older preflight versions may not detect it: ${path.basename(footerQr)}`);
+      }
+      const duplicateQrReferences = findDuplicateFooterQrReferences({
+        inputPath,
+        envPath,
+        footerQrPath: footerQr,
+      });
+      if (duplicateQrReferences.length > 0) {
+        errors.push(
+          `footer QR would be inserted twice: Markdown already embeds ${duplicateQrReferences
+            .map(({ source }) => source)
+            .join(", ")}. Remove the Markdown image before using --qr or FOOTER_QR_PATH.`,
+        );
       }
     } else {
       warnings.push("no --qr or FOOTER_QR_PATH configured; CTA footer may be absent");
@@ -481,12 +531,43 @@ class AutoHeal {
           break;
         }
         case "image_size": {
-          const paths = f.details?.paths || this.extractImagePathsFromReport(f, htmlPath);
-          const fixed = this.fixOversizedImages(paths);
-          if (fixed) {
-            this.fixesApplied.push("images_compressed");
+          // image_size 失败有两种性质不同的原因：
+          //   1. exists:true && size>max —— 真·图超大，需要压缩
+          //   2. exists:false —— bundle 前的顺序误报（图在源 assets/，bundle 会拷过来）
+          // 第二种和 local_path_absence/image_cdn_count_match 的 bundle 前豁免同构。
+          // 不区分就把第二种当失败，会阻断正常流程（篇11/篇13 两次踩坑）。
+          const details = Array.isArray(f.details) ? f.details : (f.details?.oversized || []);
+          const sourceAssetsDir = path.join(path.dirname(this.mdPath), "assets");
+          const trulyMissing = [];
+          const oversizeOnly = [];
+          for (const d of details) {
+            if (d && d.exists === false) {
+              // 去 source assets 目录找；找到说明是 bundle 前误报，豁免
+              const basename = path.basename(d.path);
+              const sourceCandidate = path.join(sourceAssetsDir, basename);
+              if (!fs.existsSync(sourceCandidate)) {
+                trulyMissing.push(d.path);
+              }
+              // 找到则静默豁免（bundle 会拷过来）
+            } else if (d && d.exists === true) {
+              oversizeOnly.push(d.path);
+            }
+          }
+          let fixed = false;
+          if (oversizeOnly.length > 0) {
+            fixed = this.fixOversizedImages(oversizeOnly);
+            if (fixed) this.fixesApplied.push("images_compressed");
+          }
+          if (trulyMissing.length > 0) {
+            warn(`AutoHeal: image_size has ${trulyMissing.length} truly missing image(s): ${trulyMissing.join(", ")}`);
+            this.unhandledFailures.push(f.id);
+          } else if (!fixed && oversizeOnly.length === 0) {
+            // 全部是 bundle 前误报，豁免
+            info(`AutoHeal: image_size skipped — ${details.length} image(s) not yet bundled but exist in source assets, bundle will copy them`);
+          } else if (fixed) {
             needsReRender = true;
-          } else {
+          } else if (oversizeOnly.length > 0) {
+            // 有真超大但压缩失败
             this.unhandledFailures.push(f.id);
           }
           break;

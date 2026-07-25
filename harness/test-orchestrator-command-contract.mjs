@@ -7,8 +7,10 @@ import {
   buildManualRelayCommand,
   buildRelayDeploymentCheckCommand,
   extractSummaryFromMarkdown,
+  findDuplicateFooterQrReferences,
   resolvePipelinePaths,
   runRelayDeploymentCheck,
+  runPublishDoctor,
 } from "../scripts/orchestrator.mjs";
 
 const result = buildManualRelayCommand({
@@ -83,6 +85,7 @@ const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "md2wechat-orchestrator-")
 try {
   const articleDir = path.join(tmpRoot, "article");
   const articlePath = path.join(articleDir, "enterprise-ai-carrier.md");
+  const assetDir = path.join(articleDir, "assets");
   fs.mkdirSync(articleDir, { recursive: true });
   fs.writeFileSync(articlePath, "# Enterprise AI Carrier\n", "utf8");
 
@@ -110,6 +113,43 @@ try {
   assert.equal(plain.archiveDir, articleDir);
   assert.equal(plain.outDir, explicitPlain);
   assert.equal(plain.renderOut, path.join(articleDir, "enterprise-ai-carrier.html"));
+
+  fs.mkdirSync(assetDir, { recursive: true });
+  const qrPath = path.join(assetDir, "ai-world-qr.jpg");
+  fs.writeFileSync(qrPath, "qr", "utf8");
+  fs.writeFileSync(articlePath, "![AI 大世界](assets/ai-world-qr.jpg)\n", "utf8");
+  assert.deepEqual(
+    findDuplicateFooterQrReferences({
+      inputPath: articlePath,
+      envPath: path.join(tmpRoot, ".env"),
+      footerQrPath: qrPath,
+    }).map(({ source }) => source),
+    ["assets/ai-world-qr.jpg"],
+  );
+
+  fs.writeFileSync(articlePath, "![外部二维码](https://example.com/ai-world-qr.jpg)\n", "utf8");
+  assert.deepEqual(
+    findDuplicateFooterQrReferences({
+      inputPath: articlePath,
+      envPath: path.join(tmpRoot, ".env"),
+      footerQrPath: qrPath,
+    }),
+    [],
+  );
+
+  fs.writeFileSync(articlePath, "![AI 大世界](assets/ai-world-qr.jpg)\n", "utf8");
+  const envPath = path.join(tmpRoot, ".env");
+  fs.writeFileSync(envPath, "WECHAT_TEST_APP_ID=appid\nWECHAT_TEST_APP_SECRET=secret\n", "utf8");
+  const doctor = runPublishDoctor({
+    inputPath: articlePath,
+    envPath,
+    account: "test",
+    autoPush: false,
+    dryRun: true,
+    thumbImage: "",
+    qrPath,
+  });
+  assert.ok(doctor.errors.some((error) => error.startsWith("footer QR would be inserted twice:")));
 } finally {
   fs.rmSync(tmpRoot, { recursive: true, force: true });
 }
