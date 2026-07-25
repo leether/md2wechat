@@ -49,18 +49,24 @@ Behavior:
 }
 
 // ── 从 HTML 提取所有图片路径 ──
-function extractImagePaths(html, baseDir) {
+export function extractImagePaths(html, baseDir, sourceAssetsDir) {
+  // sourceAssetsDir: article 源目录的 assets/（用于 bundle 前 fallback）
+  const srcRegex = /<img[^>]+src=["']([^"']+)["']/gi;
   const paths = [];
-  const regex = /src=["']([^"']+)["']/g;
   let m;
-  while ((m = regex.exec(html)) !== null) {
+  while ((m = srcRegex.exec(html)) !== null) {
     const src = m[1];
-    // 跳过 URL 和 data URI
-    if (src.startsWith("http://") || src.startsWith("https://") || src.startsWith("data:")) {
-      continue;
-    }
+    if (src.startsWith("http://") || src.startsWith("https://") || src.startsWith("data:")) continue;
     const resolved = path.isAbsolute(src) ? src : path.resolve(baseDir, src);
-    paths.push({ original: src, resolved, basename: path.basename(src) });
+    // bundle 前图可能还在源 assets/（render 不拷图）。fallback 到源目录。
+    let finalResolved = resolved;
+    if (!fs.existsSync(resolved) && sourceAssetsDir) {
+      const sourceCandidate = path.join(sourceAssetsDir, path.basename(src));
+      if (fs.existsSync(sourceCandidate)) {
+        finalResolved = sourceCandidate;
+      }
+    }
+    paths.push({ original: src, resolved: finalResolved, basename: path.basename(src) });
   }
   return paths;
 }
@@ -96,8 +102,23 @@ function main() {
   const html = fs.readFileSync(htmlPath, "utf8");
   const htmlDir = path.dirname(htmlPath);
 
+  // 推算源 article 目录的 assets/（render 不拷图，bundle 前 fallback 用）
+  // 约定：htmlPath 在 <article-dir>/publish/vN/article.html，源 assets 在 <article-dir>/assets
+  // 向上找最多 3 层，直到找到 article.md 同级 assets 目录
+  let sourceAssetsDir = null;
+  let probe = htmlDir;
+  for (let i = 0; i < 4; i++) {
+    const candidate = path.join(probe, "assets");
+    const siblingMd = fs.existsSync(path.join(probe, "article.md"));
+    if (siblingMd && fs.existsSync(candidate)) {
+      sourceAssetsDir = candidate;
+      break;
+    }
+    probe = path.dirname(probe);
+  }
+
   // 提取图片路径
-  const images = extractImagePaths(html, htmlDir);
+  const images = extractImagePaths(html, htmlDir, sourceAssetsDir);
 
   // 去重（按 resolved 路径）
   const seen = new Set();
