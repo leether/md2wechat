@@ -139,7 +139,7 @@ try {
 
   fs.writeFileSync(articlePath, "![AI 大世界](assets/ai-world-qr.jpg)\n", "utf8");
   const envPath = path.join(tmpRoot, ".env");
-  fs.writeFileSync(envPath, "WECHAT_TEST_APP_ID=test-id\nWECHAT_TEST_APP_SECRET=test-secret\n", "utf8");
+  fs.writeFileSync(envPath, "WECHAT_TEST_APP_ID=appid\nWECHAT_TEST_APP_SECRET=secret\n", "utf8");
   const doctor = runPublishDoctor({
     inputPath: articlePath,
     envPath,
