@@ -39,6 +39,7 @@ node ${PIPELINE_HOME}/scripts/orchestrator.mjs \
 ```
 
 ⚠️ 发布优先用 Orchestrator，不要手动拆 render/bundle/push。`--digest` 不传时会读取 frontmatter `summary` 并传到 relay；`--qr` 必须传绝对路径，避免 footer QR 在 render/preflight 间被拼成错误相对路径。
+正文不要再手工插入同一张二维码。Orchestrator 检测到 Markdown 已引用 `--qr` 或 `FOOTER_QR_PATH` 指向的文件时会直接阻断，避免草稿中出现两张相同二维码。
 
 ## Step 1：渲染
 
