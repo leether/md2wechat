@@ -576,3 +576,5 @@ export PIPELINE_HOME=/path/to/md2wechat
 ## 许可证
 
 MIT License — 详见 [LICENSE](LICENSE)
+
+- 公众号已发表历史导出/对账工具已抽为独立仓库：`~/workspace/mp-history-export`（https://github.com/leether/mp-history-export，private）
