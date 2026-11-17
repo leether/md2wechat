@@ -646,11 +646,28 @@ class AutoHeal {
     // 截断到 120 字符（保留安全边际）
     if (oldSummary.length <= 120) return false;
 
-    const newSummary = oldSummary.slice(0, 117) + "...";
+    // 句界优先截断：硬切会断在半句/词中（两次实测：sandbox-runti.../两个病一个...）
+    // 优先句末标点，退化到逗号，最后才硬切加省略号。三类截点都要求 >=30 字符，
+    // 避免开头就有标点导致过度截短。
+    const head = oldSummary.slice(0, 120);
+    const sentenceEnd = Math.max(
+      head.lastIndexOf("。"), head.lastIndexOf("！"), head.lastIndexOf("？"),
+      head.lastIndexOf("；"), head.lastIndexOf("."), head.lastIndexOf("!"), head.lastIndexOf("?"),
+    );
+    const commaEnd = Math.max(head.lastIndexOf("，"), head.lastIndexOf(","), head.lastIndexOf("、"));
+    let newSummary;
+    if (sentenceEnd >= 30) {
+      newSummary = head.slice(0, sentenceEnd + 1);
+    } else if (commaEnd >= 30) {
+      newSummary = head.slice(0, commaEnd);
+    } else {
+      newSummary = oldSummary.slice(0, 117) + "...";
+    }
+
     md = md.replace(/^summary:\s*(.+)$/m, `summary: ${newSummary}`);
     fs.writeFileSync(this.mdPath, md, "utf8");
 
-    ok(`AutoHeal: truncated summary from ${oldSummary.length} to ${newSummary.length} chars`);
+    ok(`AutoHeal: truncated summary from ${oldSummary.length} to ${newSummary.length} chars at sentence/clause boundary (written back to source md)`);
     return true;
   }
 
@@ -947,8 +964,39 @@ function main() {
           "render_retry",
         );
         if (retry.exitCode !== 0) {
-          err("Render failed again after AutoHeal. Manual intervention required.");
-          return 3;
+          // rerender 的内部 preflight 不继承 AutoHeal 的豁免判定（如 image_size
+          // 的 bundle 前顺序误报），已豁免项会再次失败。此处复评一次：重新拉
+          // preflight 报告过 AutoHeal，若全部属于 bundle-safe 豁免类则继续推进，
+          // 不让同一批已豁免的失败在 rerender 里二度阻断。
+          info("Rerender preflight failed; re-evaluating against AutoHeal exemptions...");
+          const retryPreflight = run(
+            path.join(PIPELINE_HOME, "harness", "preflight.mjs"),
+            [
+              "--html", renderOut,
+              "--md", inputPath,
+              "--allow-local-image-paths",
+              ...(thumbImage ? ["--cover", thumbImage] : []),
+              ...(skipImageCheck ? ["--skip-image-check"] : []),
+              "--json",
+            ],
+            logger,
+            "preflight_json_retry",
+          );
+          const retryReport = parsePreflightReport(retryPreflight.stdout);
+          if (retryReport) {
+            const reHealer = new AutoHeal(inputPath, logger);
+            const reApply = reHealer.apply(retryReport, renderOut);
+            if (reApply.unhandledFailures.length === 0) {
+              ok("AutoHeal: rerender preflight failures are bundle-safe, continuing...");
+              logger.record("render", "healed", { reason: "rerender_bundle_safe" });
+            } else {
+              err(`Render failed again after AutoHeal; unhandled: ${reApply.unhandledFailures.join(", ")}. Manual intervention required.`);
+              return 3;
+            }
+          } else {
+            err("Render failed again after AutoHeal. Manual intervention required.");
+            return 3;
+          }
         }
         ok("Render succeeded after AutoHeal");
       } else {
