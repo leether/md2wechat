@@ -24,6 +24,7 @@
 - **Bundle/relay 契约**：封面图纳入 bundle，relay 目录日期由本地生成，远程推送命令正确传递标题、作者、封面和 `--crop-235-1`
 - **发布摩擦沉淀**：补充 footer QR 绝对路径、参考资料 bullet 空行、手动 render 图片路径和正式推送默认 relay 的 gotchas
 - **Preflight 误报收敛**：Markdown 卡片/表格计数跳过代码块和 inline code，source verification 只扫描可见文本数字
+- **position/filter 样式误报**：`harness/preflight.mjs` 与 `create_wechat_draft.mjs` 用裸字符串匹配统计 `position:`/`filter:`，正文里的英文单词子串会被数成 CSS（2026-11-25 生产现场复现：参考文献标题「tumor predisposition: identification…」令本地 preflight 阻断且 `--auto-fix` 无法修复，relay 回检写出 `position: 1 ❌`，实际样式数为 0）；两处改为只在标签内部统计 CSS 声明（`countCssDeclarations`），新增 `test-css-declaration-count.mjs` 用同一组用例钉住两份实现
 - **CI 覆盖**：`npm run check` 与 GitHub Lint workflow 覆盖 `harness/**/*.mjs`
 
 ### Changed

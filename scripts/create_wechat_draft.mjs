@@ -304,7 +304,21 @@ function fetchDraftRecord(accessToken, mediaId) {
   return record;
 }
 
-function analyzeDraftContent(content) {
+// 只统计「标签内部」的 CSS 声明。微信返回的正文里若含英文单词子串（如参考文献标题
+// "tumor predisposition: identification…" 里的 "position:"），不应被当成样式。
+// harness/preflight.mjs 有一份逐字相同的实现（本地推送前检查）；两份由
+// harness/test-css-declaration-count.mjs 守护，改动须同步。
+export function countCssDeclarations(content, property) {
+  let count = 0;
+  const tagRe = /<([a-zA-Z][^<>]*)>/g;
+  let m;
+  while ((m = tagRe.exec(content)) !== null) {
+    count += (m[1].match(new RegExp(`(?:^|[;"'\\s])${property}\\s*:`, "g")) || []).length;
+  }
+  return count;
+}
+
+export function analyzeDraftContent(content) {
   return {
     imgCount: (content.match(/<img/g) || []).length,
     cdnCount: (content.match(/mmbiz\.qpic\.cn/g) || []).length,
@@ -314,8 +328,8 @@ function analyzeDraftContent(content) {
     lightCardCount: (content.match(/background:#fff8f1/g) || []).length,
     quoteCount: (content.match(/padding:14px 16px;border-left:3px/g) || []).length,
     styleCount: (content.match(/style="/g) || []).length,
-    positionCount: (content.match(/position:[^\;"]+/g) || []).length,
-    filterCount: (content.match(/filter:[^\;"]+/g) || []).length,
+    positionCount: countCssDeclarations(content, "position"),
+    filterCount: countCssDeclarations(content, "filter"),
   };
 }
 
