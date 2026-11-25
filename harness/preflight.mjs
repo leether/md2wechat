@@ -419,10 +419,25 @@ function checkImageSizes(html, htmlDir, coverPath, rules) {
   return { passed: true, level: "L1", id: "image_size", checked: imagePaths.length };
 }
 
+// 只在「标签内部」统计 CSS 声明，避免把正文/标题里的英文单词误判为样式。
+// 例如参考文献标题 "tumor predisposition: identification..." 中的 "position:" 子串，
+// 以及 "high-pass filter:" 之类，都不是 CSS。真实违规形如 style="position:absolute"。
+// scripts/create_wechat_draft.mjs 有一份逐字相同的实现（推送后回检用，运行在 relay 上、
+// 不能 import 本文件）；两份由 harness/test-css-declaration-count.mjs 守护，改动须同步。
+export function countCssDeclarations(html, property) {
+  let count = 0;
+  const tagRe = /<([a-zA-Z][^<>]*)>/g;
+  let m;
+  while ((m = tagRe.exec(html)) !== null) {
+    count += (m[1].match(new RegExp(`(?:^|[;"'\\s])${property}\\s*:`, "g")) || []).length;
+  }
+  return count;
+}
+
 function checkHtmlCompliance(html, rules) {
   const issues = [];
-  const positionCount = (html.match(/position:/g) || []).length;
-  const filterCount = (html.match(/filter:/g) || []).length;
+  const positionCount = countCssDeclarations(html, "position");
+  const filterCount = countCssDeclarations(html, "filter");
   if (positionCount > 0) {
     issues.push(`Found ${positionCount} 'position:' style(s). WeChat strips position CSS.`);
   }
