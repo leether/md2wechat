@@ -40,11 +40,6 @@ jobs:
             node --check "$f" && echo "✅ $f" || exit 1
           done
 
-      - name: Run generated check tests
-        run: |
-          node harness/test-code-generator-contract.mjs
-          node harness/test-preflight-fixtures.mjs
-          node harness/test-css-declaration-count.mjs
-          node harness/test-orchestrator-command-contract.mjs
-          node harness/test-self-report-no-write.mjs
-          node harness/run-generated-check-tests.mjs
+      # 测试清单只在 package.json 的 scripts.check 里维护，这里不再另写一份，以免两边漂移。
+      - name: Run contract tests
+        run: npm run check

@@ -31,6 +31,7 @@
 
 - **自创生治理**：`self_report`/`code-generator` 新生成规则默认进入 `observation_checks`，必须同时生成配套测试、evolution audit 和 rollback snapshot；观察层失败只报告不阻断
 - **发布治理**：新增 staged-file manifest、CI/merge decision ladder、release source-of-truth、参数契约矩阵和 self_report no-write 验证路径
+- **CI 测试来源单一化**：Lint workflow 的契约测试改为直接运行 `npm run check`，不再另写一份测试清单。此前两份清单各自维护，relay 脚本同步、发布证据、draft 更新形状、草稿对账这四个测试一直没进 CI
 
 ## [0.4.0] - 2026-06-07
 
